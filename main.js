@@ -9,6 +9,61 @@ let workbook,
   worksheet,
   companyList = [];
 
+// Function to fill diagonal cells with red for matching companies
+function fillDiagonalCells() {
+  companyList.forEach((company, index) => {
+    const cell = worksheet.getCell(
+      `${indexToColumnLetter(index + 1)}${index + 1}`
+    );
+    cell.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFFF0000" }, // Red color
+    };
+  });
+}
+
+// Function to populate the data table
+function populateDataTable() {
+  dataBody.innerHTML = ""; // Clear existing data
+
+  // Loop through the companies in the first column (row companies)
+  for (let rowIndex = 2; rowIndex <= worksheet.rowCount; rowIndex++) {
+    const row = worksheet.getRow(rowIndex);
+    const rowCompany = row.values[1]; // First column is the row company
+
+    // Loop through the columns starting from the second
+    for (
+      let columnIndex = 2;
+      columnIndex <= worksheet.getRow(1).values.length;
+      columnIndex++
+    ) {
+      const amount = row.values[columnIndex]; // Get the amount value
+      const columnCompany = worksheet.getRow(1).values[columnIndex]; // Column company from the header
+
+      // Only add valid amounts to the table
+      if (amount !== null && amount !== "" && amount !== undefined) {
+        const newRow = document.createElement("tr");
+
+        const companyCell = document.createElement("td");
+        companyCell.textContent = rowCompany; // Row company
+
+        const columnCell = document.createElement("td");
+        columnCell.textContent = columnCompany; // Column company
+
+        const amountCell = document.createElement("td");
+        amountCell.textContent = amount; // Amount
+
+        newRow.appendChild(companyCell);
+        newRow.appendChild(columnCell);
+        newRow.appendChild(amountCell);
+
+        dataBody.appendChild(newRow);
+      }
+    }
+  }
+}
+
 // Function to read and parse the uploaded Excel file
 excelFileInput.addEventListener("change", async function (event) {
   const file = event.target.files[0];
@@ -27,6 +82,12 @@ excelFileInput.addEventListener("change", async function (event) {
     // Populate both select boxes
     populateSelect(companyRowSelect, headers);
     populateSelect(companyColumnSelect, headers);
+
+    // Fill diagonal cells for matching companies
+    fillDiagonalCells();
+
+    // Populate the table with existing data
+    populateDataTable();
   };
 
   reader.readAsArrayBuffer(file);
@@ -56,6 +117,29 @@ function disableSameCompany() {
     alert("You cannot select the same company in both row and column.");
     companyColumnSelect.value = ""; // Reset the column dropdown if the same is selected
   }
+}
+
+// Function to add a new row to the data table
+function addNewRowToTable(rowCompany, columnCompany, amount) {
+  const dataBody = document.getElementById("dataBody");
+  const newRow = document.createElement("tr");
+  newRow.classList.add("new-row");
+
+  const rowCell = document.createElement("td");
+  rowCell.textContent = rowCompany;
+
+  const columnCell = document.createElement("td");
+  columnCell.textContent = columnCompany;
+
+  const amountCell = document.createElement("td");
+  amountCell.textContent = amount;
+
+  newRow.appendChild(rowCell);
+  newRow.appendChild(columnCell);
+  newRow.appendChild(amountCell);
+
+  // Insert new row at the top
+  dataBody.insertBefore(newRow, dataBody.firstChild);
 }
 
 // Add new company to both row and column
@@ -115,6 +199,9 @@ async function addCompany() {
 
   // Clear the input field
   newCompanyInput.value = "";
+
+  // Fill diagonal cells for matching companies
+  fillDiagonalCells();
 }
 
 // Function to convert a 1-based index to an Excel column letter
@@ -130,7 +217,6 @@ function indexToColumnLetter(index) {
 
 addCompanyButton.addEventListener("click", addCompany);
 
-// Store the entered value in the corresponding cell of the Excel sheet
 submitButton.addEventListener("click", async function () {
   const rowCompany = companyRowSelect.value;
   const columnCompany = companyColumnSelect.value;
@@ -150,19 +236,13 @@ submitButton.addEventListener("click", async function () {
   const rowIndex = companyList.indexOf(rowCompany) + 1; // Add 1 for Excel 1-based index
   const columnIndex = companyList.indexOf(columnCompany) + 1; // Add 1 for Excel 1-based index
 
-  // Check for valid indices
-  if (rowIndex < 1 || columnIndex < 1) {
-    alert("Invalid selection, please check the company names.");
-    return;
-  }
-
   // Get the current value in the cell
   const cell = worksheet.getCell(
     `${String.fromCharCode(64 + columnIndex)}${rowIndex}`
   );
   const existingValue = cell.value;
 
-  // If the cell already has a value, confirm with the user
+  // Check if the existing value in the cell is the same
   if (existingValue !== null) {
     const confirmOverride = confirm(
       `The current value is ${existingValue}. Do you want to override it with ${amount}?`
@@ -176,11 +256,39 @@ submitButton.addEventListener("click", async function () {
   // Set the amount in the correct cell in the Excel sheet
   cell.value = amount;
 
+  // Update the displayed list
+  updateDataTable(rowCompany, columnCompany, amount);
+
   // Clear inputs after submission
   companyRowSelect.value = "";
   companyColumnSelect.value = "";
   document.getElementById("amount").value = "";
 });
+
+// Function to update the displayed data table
+function updateDataTable(rowCompany, columnCompany, amount) {
+  const dataBody = document.getElementById("dataBody");
+  const rows = Array.from(dataBody.rows);
+  let updated = false;
+
+  // Check if the entry already exists in the table
+  rows.forEach((row) => {
+    const rowCells = row.children;
+    if (
+      rowCells[0].textContent === rowCompany &&
+      rowCells[1].textContent === columnCompany
+    ) {
+      // Update the amount cell
+      rowCells[2].textContent = amount;
+      updated = true; // Mark as updated
+    }
+  });
+
+  // If not updated, add a new row
+  if (!updated) {
+    addNewRowToTable(rowCompany, columnCompany, amount);
+  }
+}
 
 // Download the updated Excel file when "Download" button is clicked
 downloadButton.addEventListener("click", async function () {
