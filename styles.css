@@ -150,3 +150,15 @@ body {
 .new-row td {
   color: forestgreen;
 }
+
+.table-container {
+  height: 300px;
+  overflow-y: auto;
+}
+
+.table-container thead {
+  position: sticky;
+  top: 0;
+  left: 0;
+}
+
