@@ -1,0 +1,148 @@
+/* GLOBALS START */
+:root {
+  --clr-black: #0000;
+  --clr-white: #ffff;
+  --clr-black-bean: #1e201e;
+  --clr-black-olive: #3c3d37;
+  --clr-gray-olive: #697565;
+  --clr-light-cream: #ecdfcc;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 10px;
+}
+
+body {
+  background-color: var(--clr-black-olive);
+  color: var(--clr-white);
+  font-size: 14px;
+}
+
+/* GLOBALS END */
+
+/* BACKGROUNDS START */
+.bg-black {
+  background-color: var(--clr-black);
+}
+
+.bg-white {
+  background-color: var(--clr-white);
+}
+
+.bg-black-bean {
+  background-color: var(--clr-black-bean);
+}
+
+.bg-black-olive {
+  background-color: var(--clr-black-olive);
+}
+
+.bg-gray-olive {
+  background-color: var(--clr-gray-olive);
+}
+
+.bg-light-cream {
+  background-color: var(--clr-light-cream);
+}
+
+/* BACKGROUNDS END */
+
+/* TEXT COLORS START */
+.black {
+  color: var(--clr-black);
+}
+
+.white {
+  color: var(--clr-white);
+}
+
+.black-bean {
+  color: var(--clr-black-bean);
+}
+
+.black-olive {
+  color: var(--clr-black-olive);
+}
+
+.gray-olive {
+  color: var(--clr-gray-olive);
+}
+
+.light-cream {
+  color: var(--clr-light-cream);
+}
+/* TEXT COLORS END */
+
+.main-section {
+  padding: 4rem 0;
+}
+
+.excel-file-input {
+  font-size: 12px;
+}
+
+.form-floating.company-select-form-floating > .form-select.company-select {
+  height: auto;
+  min-height: auto;
+  font-size: 14px;
+}
+
+.form-select:focus {
+  box-shadow: none;
+  border-color: transparent;
+}
+
+.form-control:focus {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.form-floating.company-select-form-floating > label {
+  font-size: 12px;
+}
+
+.form-container {
+  max-width: 800px;
+  margin: auto;
+}
+
+.amount-input.form-control,
+.new-company-input {
+  font-size: 14px;
+}
+
+.custom-btn.btn {
+  font-size: 14px;
+}
+
+.form-wrapper {
+  padding-bottom: 1.5rem;
+  border: 1px solid var(--clr-gray-olive);
+  border-radius: 8px;
+  margin-bottom: 3rem;
+  position: relative;
+}
+
+.title-badge {
+  position: absolute;
+  top: 0;
+}
+
+.title-badge p {
+  margin-bottom: 0;
+}
+
+.title-badge {
+  position: absolute;
+  top: -22%;
+  margin: 0;
+  padding: 4px 8px;
+  background: var(--clr-black-bean);
+  border-radius: 8px;
+  max-width: fit-content;
+}

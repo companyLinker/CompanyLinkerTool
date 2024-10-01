@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="./assets/styles/bootstrap.min.css" />
+    <link rel="stylesheet" href="./assets/styles/styles.css" />
+    <title>Company Linker Tool</title>
+  </head>
+  <body>
+    <section class="main-section">
+      <div class="container">
+        <h1 class="text-center mb-0 white fw-normal mb-5 pb-5">
+          Company Linker Tool
+        </h1>
+        <div class="form-container">
+          <div class="row g-4 justify-content-between form-wrapper">
+            <div class="col-12">
+              <label for="excelFile" class="form-label excel-file-input"
+                >Upload Excel Sheet</label
+              >
+              <input
+                class="form-control form-control-lg"
+                type="file"
+                id="excelFile"
+                accept=".xls, .xlsx"
+              />
+            </div>
+          </div>
+          <div class="row g-4 justify-content-between form-wrapper">
+            <div class="col-6">
+              <div class="form-floating company-select-form-floating">
+                <select
+                  class="form-select company-select"
+                  id="companyColumn"
+                  aria-label="Company Select (Column)"
+                >
+                  <option value="" disabled selected>
+                    Select a company (Column)
+                  </option>
+                </select>
+                <label for="floatingSelect"
+                  >Select a Company from the Column</label
+                >
+              </div>
+            </div>
+            <div class="col-6">
+              <div class="form-floating company-select-form-floating">
+                <select
+                  class="form-select company-select"
+                  id="companyRow"
+                  aria-label="Company Select (Row)"
+                >
+                  <option value="" disabled selected>
+                    Select a company (Row)
+                  </option>
+                </select>
+                <label for="floatingSelect"
+                  >Select a Company from the Row</label
+                >
+              </div>
+            </div>
+            <div class="col-12">
+              <input
+                type="number"
+                class="form-control amount-input"
+                placeholder="Enter the amount"
+                aria-label="Amount"
+                id="amount"
+              />
+            </div>
+            <div class="col-12">
+              <button
+                class="btn btn-success btn-lg custom-btn"
+                id="submitButton"
+                type="submit"
+              >
+                Submit
+              </button>
+            </div>
+          </div>
+          <div class="row g-4 justify-content-between form-wrapper">
+            <div class="col-12">
+              <input
+                type="text"
+                class="form-control new-company-input"
+                placeholder="Enter new company name"
+                aria-label="New Company"
+                id="newCompany"
+              />
+            </div>
+            <div class="col-12">
+              <button
+                class="btn btn-info btn-lg custom-btn"
+                id="addCompanyButton"
+                type="button"
+              >
+                Add Company
+              </button>
+            </div>
+          </div>
+          <div class="row g-4 justify-content-between">
+            <div class="col-12">
+              <button
+                class="btn btn-primary btn-lg custom-btn d-block ms-auto"
+                id="downloadButton"
+                type="button"
+              >
+                Download Excel Sheet
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <!-- SCRIPTS START -->
+    <script src="./assets/scripts/bootstrap.bundle.min.js"></script>
+    <!-- <script src="./assets/scripts/xlsx.full.min.js"></script> -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
+
+    <script src="./assets/scripts/main.js"></script>
+    <!-- SCRIPTS END -->
+  </body>
+</html>
