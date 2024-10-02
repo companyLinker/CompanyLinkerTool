@@ -46,10 +46,10 @@ function populateDataTable() {
         const newRow = document.createElement("tr");
 
         const companyCell = document.createElement("td");
-        companyCell.textContent = rowCompany; // Row company
+        companyCell.textContent = columnCompany; // Row company
 
         const columnCell = document.createElement("td");
-        columnCell.textContent = columnCompany; // Column company
+        columnCell.textContent = rowCompany; // Column company
 
         const amountCell = document.createElement("td");
         amountCell.textContent = amount; // Amount
@@ -257,7 +257,7 @@ submitButton.addEventListener("click", async function () {
   cell.value = amount;
 
   // Update the displayed list
-  updateDataTable(rowCompany, columnCompany, amount);
+  updateDataTable(columnCompany, rowCompany, amount);
 
   // Clear inputs after submission
   companyRowSelect.value = "";
@@ -266,7 +266,7 @@ submitButton.addEventListener("click", async function () {
 });
 
 // Function to update the displayed data table
-function updateDataTable(rowCompany, columnCompany, amount) {
+function updateDataTable(columnCompany, rowCompany, amount) {
   const dataBody = document.getElementById("dataBody");
   const rows = Array.from(dataBody.rows);
   let updated = false;
@@ -275,8 +275,8 @@ function updateDataTable(rowCompany, columnCompany, amount) {
   rows.forEach((row) => {
     const rowCells = row.children;
     if (
-      rowCells[0].textContent === rowCompany &&
-      rowCells[1].textContent === columnCompany
+      rowCells[1].textContent === rowCompany &&
+      rowCells[0].textContent === columnCompany
     ) {
       // Update the amount cell
       rowCells[2].textContent = amount;
@@ -286,7 +286,7 @@ function updateDataTable(rowCompany, columnCompany, amount) {
 
   // If not updated, add a new row
   if (!updated) {
-    addNewRowToTable(rowCompany, columnCompany, amount);
+    addNewRowToTable(columnCompany, rowCompany, amount);
   }
 }
 
