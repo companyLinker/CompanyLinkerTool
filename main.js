@@ -270,6 +270,7 @@ submitButton.addEventListener("click", async function () {
   const rowCompany = companyRowSelect.value;
   const columnCompany = companyColumnSelect.value;
   const amount = parseFloat(document.getElementById("amount").value);
+  const comment = document.getElementById("comment").value.trim(); // Get the comment from the textarea
 
   if (!rowCompany || !columnCompany || isNaN(amount)) {
     alert("Please select both companies and enter a valid amount.");
@@ -294,6 +295,7 @@ submitButton.addEventListener("click", async function () {
   // Get the current value in the cell
   const cell = row.getCell(indexToColumnLetter(columnIndex));
   const existingValue = cell.value;
+  const existingComment = cell.note;
 
   // Check if the existing value in the cell is the same
   if (existingValue !== null) {
@@ -306,16 +308,40 @@ submitButton.addEventListener("click", async function () {
     }
   }
 
+  // Check if the existing comment in the cell is the same
+  if (existingComment !== null && comment !== existingComment) {
+    if (existingComment === undefined) {
+      // If the existing comment is undefined, don't show the confirm box
+      cell.note = comment;
+    } else {
+      const confirmOverrideComment = confirm(
+        `The current comment is "${existingComment}". Do you want to override it with "${comment}"?`
+      );
+
+      if (!confirmOverrideComment) {
+        return; // If the user chooses not to override, exit the function
+      } else {
+        cell.note = comment;
+      }
+    }
+  } else {
+    // If the comment is empty, don't show the confirm box
+    if (comment) {
+      cell.note = comment;
+    }
+  }
+
   // Set the amount in the correct cell in the Excel sheet
   cell.value = amount;
 
   // Update the displayed list
-  updateDataTable(columnCompany, rowCompany, amount);
+  updateDataTable(columnCompany, rowCompany, amount); // Pass only the required data to the update function
 
   // Clear inputs after submission
   companyRowSelect.value = "";
   companyColumnSelect.value = "";
   document.getElementById("amount").value = "";
+  document.getElementById("comment").value = ""; // Clear the comment textarea
 });
 
 // Function to update the displayed data table
