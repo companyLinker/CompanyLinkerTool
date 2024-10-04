@@ -5,6 +5,7 @@ const submitButton = document.getElementById("submitButton");
 const downloadButton = document.getElementById("downloadButton");
 const newCompanyInput = document.getElementById("newCompany");
 const addCompanyButton = document.getElementById("addCompanyButton");
+
 let workbook,
   worksheet,
   companyList = [];
@@ -24,45 +25,98 @@ function fillDiagonalCells() {
 }
 
 // Function to populate the data table
-function populateDataTable() {
-  dataBody.innerHTML = ""; // Clear existing data
+function populateDataTable(selectedRowCompany, selectedColumnCompany) {
+  const dataBody = document.getElementById("dataBody");
+  const fragment = document.createDocumentFragment();
+  const rows = {};
+  const existingRows = Array.from(dataBody.rows);
 
-  // Loop through the companies in the first column (row companies)
+  const headerRow = worksheet.getRow(1);
+  const columnCount = headerRow.values.length;
+
   for (let rowIndex = 2; rowIndex <= worksheet.rowCount; rowIndex++) {
     const row = worksheet.getRow(rowIndex);
-    const rowCompany = row.values[1]; // First column is the row company
+    const rowCompany = row.getCell(1).value;
 
-    // Loop through the columns starting from the second
-    for (
-      let columnIndex = 2;
-      columnIndex <= worksheet.getRow(1).values.length;
-      columnIndex++
-    ) {
-      const amount = row.values[columnIndex]; // Get the amount value
-      const columnCompany = worksheet.getRow(1).values[columnIndex]; // Column company from the header
+    // If a specific row company is selected and it doesn't match, skip this row
+    if (selectedRowCompany && rowCompany !== selectedRowCompany) {
+      continue;
+    }
 
-      // Only add valid amounts to the table
-      if (amount !== null && amount !== "" && amount !== undefined) {
-        const newRow = document.createElement("tr");
+    for (let columnIndex = 2; columnIndex <= columnCount; columnIndex++) {
+      const amount = row.getCell(columnIndex).value;
+      const columnCompany = headerRow.getCell(columnIndex).value;
 
-        const companyCell = document.createElement("td");
-        companyCell.textContent = columnCompany; // Row company
+      // If a specific column company is selected and it doesn't match, skip this column
+      if (selectedColumnCompany && columnCompany !== selectedColumnCompany) {
+        continue;
+      }
 
-        const columnCell = document.createElement("td");
-        columnCell.textContent = rowCompany; // Column company
-
-        const amountCell = document.createElement("td");
-        amountCell.textContent = amount; // Amount
-
-        newRow.appendChild(companyCell);
-        newRow.appendChild(columnCell);
-        newRow.appendChild(amountCell);
-
-        dataBody.appendChild(newRow);
+      // Check if there is a valid amount and row and column companies are not the same
+      if (
+        amount !== null &&
+        amount !== undefined &&
+        String(amount).trim() !== "" &&
+        !isNaN(parseFloat(String(amount).trim())) &&
+        rowCompany !== columnCompany
+      ) {
+        const key = `${columnCompany}-${rowCompany}`;
+        if (!rows[key]) {
+          rows[key] = {
+            columnCompany,
+            rowCompany,
+            amounts: [amount],
+          };
+        } else {
+          rows[key].amounts.push(amount);
+        }
       }
     }
   }
+
+  // Remove any existing rows with the same company and amount
+  existingRows.forEach((row) => {
+    row.remove();
+  });
+
+  // Add the new rows to the fragment
+  Object.keys(rows).forEach((key) => {
+    const row = rows[key];
+    const rowElement = document.createElement("tr");
+    rowElement.innerHTML = `
+      <td>${row.columnCompany}</td>
+      <td>${row.rowCompany}</td>
+      <td>${row.amounts.join(", ")}</td>
+    `;
+    fragment.appendChild(rowElement);
+  });
+
+  // If no data is displayed, add a message
+  if (fragment.childNodes.length === 0) {
+    const messageRow = document.createElement("tr");
+    messageRow.innerHTML = `
+      <td colspan="3">No data available for the selected companies.</td>
+    `;
+    fragment.appendChild(messageRow);
+  }
+
+  // Batch DOM updates
+  dataBody.innerHTML = "";
+  dataBody.appendChild(fragment);
 }
+
+// Event listeners for dropdowns to update the data table dynamically
+companyRowSelect.addEventListener("change", function () {
+  const rowCompany = companyRowSelect.value;
+  const columnCompany = companyColumnSelect.value;
+  populateDataTable(rowCompany, columnCompany);
+});
+
+companyColumnSelect.addEventListener("change", function () {
+  const rowCompany = companyRowSelect.value;
+  const columnCompany = companyColumnSelect.value;
+  populateDataTable(rowCompany, columnCompany);
+});
 
 // Function to read and parse the uploaded Excel file
 excelFileInput.addEventListener("change", async function (event) {
@@ -85,9 +139,6 @@ excelFileInput.addEventListener("change", async function (event) {
 
     // Fill diagonal cells for matching companies
     fillDiagonalCells();
-
-    // Populate the table with existing data
-    populateDataTable();
   };
 
   reader.readAsArrayBuffer(file);
@@ -116,6 +167,7 @@ function disableSameCompany() {
   if (rowCompany === columnCompany) {
     alert("You cannot select the same company in both row and column.");
     companyColumnSelect.value = ""; // Reset the column dropdown if the same is selected
+    companyRowSelect.value = ""; // Reset the column dropdown if the same is selected
   }
 }
 
@@ -178,19 +230,16 @@ async function addCompany() {
 
   // Initialize new cells in the new column
   for (let i = 2; i <= newIndex; i++) {
-    const newCell = worksheet.getCell(`${colLetter}${i}`);
-    // Ensure the row exists
-    if (!worksheet.getRow(i).hasValues) {
-      worksheet.getRow(i).values = []; // Initialize the row if it doesn't exist
+    const newRow = worksheet.getRow(i);
+    if (!newRow) {
+      worksheet.addRow([]); // Add a new row if it doesn't exist
     }
+    const newCell = newRow.getCell(colLetter);
     newCell.value = ""; // Set the new cell value to empty
   }
 
   // Set the diagonal cell to "-"
-  const diagonalCell = worksheet.getCell(`${colLetter}${newIndex + 1}`);
-  if (!diagonalCell.row) {
-    worksheet.addRow(); // Add a new row if it doesn't exist
-  }
+  const diagonalCell = worksheet.getCell(`${colLetter}${newIndex}`);
   diagonalCell.value = "-";
 
   // Populate both select boxes again
@@ -236,10 +285,14 @@ submitButton.addEventListener("click", async function () {
   const rowIndex = companyList.indexOf(rowCompany) + 1; // Add 1 for Excel 1-based index
   const columnIndex = companyList.indexOf(columnCompany) + 1; // Add 1 for Excel 1-based index
 
+  // Ensure the row exists
+  const row = worksheet.getRow(rowIndex);
+  if (!row) {
+    worksheet.addRow([]); // Add a new row if it doesn't exist
+  }
+
   // Get the current value in the cell
-  const cell = worksheet.getCell(
-    `${String.fromCharCode(64 + columnIndex)}${rowIndex}`
-  );
+  const cell = row.getCell(indexToColumnLetter(columnIndex));
   const existingValue = cell.value;
 
   // Check if the existing value in the cell is the same
@@ -269,12 +322,13 @@ submitButton.addEventListener("click", async function () {
 function updateDataTable(columnCompany, rowCompany, amount) {
   const dataBody = document.getElementById("dataBody");
   const rows = Array.from(dataBody.rows);
+
   let updated = false;
 
-  // Check if the entry already exists in the table
   rows.forEach((row) => {
     const rowCells = row.children;
     if (
+      rowCells.length > 2 &&
       rowCells[1].textContent === rowCompany &&
       rowCells[0].textContent === columnCompany
     ) {
@@ -286,7 +340,20 @@ function updateDataTable(columnCompany, rowCompany, amount) {
 
   // If not updated, add a new row
   if (!updated) {
-    addNewRowToTable(columnCompany, rowCompany, amount);
+    const newRow = document.createElement("tr");
+    newRow.classList.add("new-row"); // Add the "new-row" class
+    newRow.innerHTML = `
+      <td>${columnCompany}</td>
+      <td>${rowCompany}</td>
+      <td>${amount}</td>
+    `;
+    dataBody.insertBefore(newRow, dataBody.firstChild); // Add the new row to the top
+  }
+
+  // Remove the "No data available" message if it exists
+  const noDataRow = dataBody.querySelector("tr td[colspan='3']");
+  if (noDataRow) {
+    noDataRow.parentNode.remove();
   }
 }
 
