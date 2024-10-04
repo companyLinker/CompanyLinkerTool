@@ -1,6 +1,6 @@
 /* GLOBALS START */
 :root {
-  --clr-black: #0000;
+  --clr-black: #000;
   --clr-white: #ffff;
   --clr-black-bean: #1e201e;
   --clr-black-olive: #3c3d37;
@@ -162,3 +162,19 @@ body {
   left: 0;
 }
 
+.comment-text-area.form-floating label {
+  color: var(--clr-black);
+  font-size: 12px;
+}
+
+.comment-text-area .form-control {
+  font-size: 14px;
+}
+
+.form-floating.comment-text-area > .form-control:not(:placeholder-shown) {
+  padding-top: 2rem;
+}
+
+.affiliated-group-btn label {
+  font-size: 14px;
+}
