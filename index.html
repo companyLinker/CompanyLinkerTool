@@ -16,6 +16,38 @@
         <div class="form-container">
           <div class="row g-4 justify-content-between form-wrapper">
             <div class="col-12">
+              <div
+                class="btn-group affiliated-group-btn"
+                role="group"
+                aria-label="Basic radio toggle button group"
+              >
+                <input
+                  type="radio"
+                  class="btn-check"
+                  name="btnradio"
+                  id="affiliatedRadio"
+                  autocomplete="off"
+                  value="affiliated"
+                  checked
+                />
+                <label class="btn btn-outline-light" for="affiliatedRadio"
+                  >Affiliated</label
+                >
+
+                <input
+                  type="radio"
+                  class="btn-check"
+                  name="btnradio"
+                  id="nonAffiliatedRadio"
+                  value="nonAffiliated"
+                  autocomplete="off"
+                />
+                <label class="btn btn-outline-light" for="nonAffiliatedRadio"
+                  >Non-affiliated</label
+                >
+              </div>
+            </div>
+            <div class="col-12">
               <label for="excelFile" class="form-label excel-file-input"
                 >Upload Excel Sheet</label
               >
@@ -70,6 +102,17 @@
               />
             </div>
             <div class="col-12">
+              <div class="form-floating comment-text-area">
+                <textarea
+                  class="form-control"
+                  placeholder="Leave a comment here"
+                  id="comment"
+                  style="height: 80px"
+                ></textarea>
+                <label for="comment">Comments (Optional)</label>
+              </div>
+            </div>
+            <div class="col-12">
               <button
                 class="btn btn-success btn-lg custom-btn"
                 id="submitButton"
@@ -110,21 +153,21 @@
               </button>
             </div>
           </div>
-          <div class="row g-4 justify-content-between ">
+          <div class="row g-4 justify-content-between">
             <div class="col-12">
               <div class="table-container">
-              <table class="table table-bordered" id="dataTable">
-                <thead>
-                  <tr>
-                    <th>Company (Column)</th>
-                    <th>Company (Row)</th>
-                    <th>Amount</th>
-                  </tr>
-                </thead>
-                <tbody id="dataBody">
-                  <!-- Existing data will be populated here -->
-                </tbody>
-              </table>
+                <table class="table table-bordered" id="dataTable">
+                  <thead>
+                    <tr>
+                      <th>Company (Column)</th>
+                      <th>Company (Row)</th>
+                      <th>Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody id="dataBody">
+                    <!-- Existing data will be populated here -->
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>
