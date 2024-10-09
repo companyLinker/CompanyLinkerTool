@@ -5,10 +5,13 @@ const submitButton = document.getElementById("submitButton");
 const downloadButton = document.getElementById("downloadButton");
 const newCompanyInput = document.getElementById("newCompany");
 const addCompanyButton = document.getElementById("addCompanyButton");
+const affiliatedRadio = document.getElementById("affiliatedRadio");
+const nonAffiliatedRadio = document.getElementById("nonAffiliatedRadio");
 
 let workbook,
   worksheet,
-  companyList = [];
+  companyList = [],
+  rowCompanies = [];
 
 // Function to fill diagonal cells with red for matching companies
 function fillDiagonalCells() {
@@ -133,16 +136,68 @@ excelFileInput.addEventListener("change", async function (event) {
     const headers = worksheet.getRow(1).values.slice(1); // Get values, slice to remove empty first element
     companyList = headers;
 
+    // Get companies from the first column (rows)
+    rowCompanies = []; // Reset rowCompanies
+    for (let rowIndex = 2; rowIndex <= worksheet.rowCount; rowIndex++) {
+      const row = worksheet.getRow(rowIndex);
+      const rowCompany = row.getCell(1).value;
+      rowCompanies.push(rowCompany);
+    }
+
     // Populate both select boxes
-    populateSelect(companyRowSelect, headers);
+    populateSelect(
+      companyRowSelect,
+      rowCompanies.filter((company) => companyList.includes(company))
+    );
     populateSelect(companyColumnSelect, headers);
 
     // Fill diagonal cells for matching companies
     fillDiagonalCells();
+
+    // Update the dropdowns based on the affiliation type
+    updateCompanyDropdowns();
   };
 
   reader.readAsArrayBuffer(file);
 });
+
+// Function to update dropdown options based on affiliation type
+function updateCompanyDropdowns() {
+  const isAffiliated = affiliatedRadio.checked;
+
+  // Determine available companies for row and column selections
+  let availableRowCompanies, availableColumnCompanies;
+
+  // Find the index of the first blank row that separates affiliated and non-affiliated companies
+  let blankRowIndex = rowCompanies.findIndex((company) => !company);
+
+  if (isAffiliated) {
+    // Affiliated: Show only companies that exist in both rows and columns, excluding the blank row
+    availableRowCompanies = rowCompanies
+      .slice(0, blankRowIndex)
+      .filter((company) => companyList.includes(company));
+    availableColumnCompanies = companyList; // Companies that can be columns
+  } else {
+    // Non-Affiliated: Show all companies for rows, including both affiliated and non-affiliated
+    availableRowCompanies = rowCompanies.filter(
+      (company) => company !== null && company !== undefined
+    );
+    availableColumnCompanies = companyList; // Limit columns to those in the header
+  }
+
+  // Populate dropdowns
+  populateSelect(companyRowSelect, availableRowCompanies);
+  populateSelect(companyColumnSelect, availableColumnCompanies);
+
+  // console.log("Row Companies:", availableRowCompanies);
+  // console.log("Column Companies:", availableColumnCompanies);
+}
+// Event listeners for radio buttons
+affiliatedRadio.addEventListener("change", updateCompanyDropdowns);
+nonAffiliatedRadio.addEventListener("change", updateCompanyDropdowns);
+
+// Initial population of dropdowns
+updateCompanyDropdowns();
 
 // Function to populate dropdowns
 function populateSelect(selectElement, options) {
@@ -204,47 +259,60 @@ async function addCompany() {
   }
 
   // Check if the company already exists
-  if (companyList.includes(newCompany)) {
+  if (companyList.includes(newCompany) || rowCompanies.includes(newCompany)) {
     alert("This company already exists.");
     return;
   }
 
-  // Add the new company to the companyList
-  companyList.push(newCompany);
-  const newIndex = companyList.length;
+  // Find the index of the second blank row (separator) - Improved Blank Check
+  let blankRowIndex = rowCompanies.findIndex((company, index) => {
+    return (
+      (company === null ||
+        company === undefined ||
+        company.toString().trim() === "") &&
+      index < rowCompanies.length - 1
+    );
+  });
 
-  // Set the new company name in the first column (row header)
-  const rowCell = worksheet.getCell(`A${newIndex}`);
-  rowCell.value = newCompany;
+  if (blankRowIndex === -1) {
+    // If no second blank row, treat the end as the separator
+    blankRowIndex = rowCompanies.length;
+  }
 
-  // Convert the index to a column letter
-  const colLetter = indexToColumnLetter(newIndex); // Use the new function here
-  const headerCell = worksheet.getCell(`${colLetter}1`);
+  // console.log("rowCompanies before adding:", rowCompanies);
+  // console.log("blankRowIndex:", blankRowIndex);
 
-  // Ensure headerCell is initialized
-  if (!headerCell.row) {
-    worksheet.addRow([newCompany]); // This adds a new row with the new company as the first cell
+  if (affiliatedRadio.checked) {
+    // Affiliated mode:
+    const columnIndex = companyList.length + 1;
+    const rowIndex = columnIndex;
+
+    // Add to column header
+    worksheet.getCell(`${indexToColumnLetter(columnIndex)}1`).value =
+      newCompany;
+    companyList.push(newCompany);
+
+    // Insert a new row before the blank row
+    worksheet.spliceRows(blankRowIndex + 2, 0, [newCompany]);
+    rowCompanies.splice(blankRowIndex, 0, newCompany);
   } else {
-    headerCell.value = newCompany; // Set the new header
+    // Non-affiliated mode: Add after the blank row
+    rowCompanies.splice(blankRowIndex + 1, 0, newCompany);
+    worksheet.addRow([newCompany], blankRowIndex + 2);
   }
 
-  // Initialize new cells in the new column
-  for (let i = 2; i <= newIndex; i++) {
-    const newRow = worksheet.getRow(i);
-    if (!newRow) {
-      worksheet.addRow([]); // Add a new row if it doesn't exist
-    }
-    const newCell = newRow.getCell(colLetter);
-    newCell.value = ""; // Set the new cell value to empty
-  }
+  // Update the worksheet.rowCount property if necessary
+  worksheet.rowCount = Math.max(worksheet.rowCount, rowCompanies.length + 1);
 
-  // Set the diagonal cell to "-"
-  const diagonalCell = worksheet.getCell(`${colLetter}${newIndex}`);
-  diagonalCell.value = "-";
+  // Recalculate indices
+  companyList = worksheet.getRow(1).values.slice(1);
+  rowCompanies = [];
+  for (let i = 2; i <= worksheet.rowCount; i++) {
+    rowCompanies.push(worksheet.getRow(i).getCell(1).value);
+  }
 
   // Populate both select boxes again
-  populateSelect(companyRowSelect, companyList);
-  populateSelect(companyColumnSelect, companyList);
+  updateCompanyDropdowns();
 
   // Clear the input field
   newCompanyInput.value = "";
@@ -255,13 +323,16 @@ async function addCompany() {
 
 // Function to convert a 1-based index to an Excel column letter
 function indexToColumnLetter(index) {
-  let letter = "";
+  const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  let columnLetter = "";
+
   while (index > 0) {
-    const modulo = (index - 1) % 26;
-    letter = String.fromCharCode(65 + modulo) + letter;
-    index = Math.floor((index - modulo) / 26);
+    const remainder = (index - 1) % 26;
+    columnLetter = letters[remainder] + columnLetter;
+    index = Math.floor((index - 1) / 26);
   }
-  return letter;
+
+  return columnLetter;
 }
 
 addCompanyButton.addEventListener("click", addCompany);
@@ -283,17 +354,22 @@ submitButton.addEventListener("click", async function () {
   }
 
   // Find row and column indices of the selected companies
-  const rowIndex = companyList.indexOf(rowCompany) + 1; // Add 1 for Excel 1-based index
+  let rowIndex = rowCompanies.indexOf(rowCompany) + 2; // Add 1 for Excel 1-based index
   const columnIndex = companyList.indexOf(columnCompany) + 1; // Add 1 for Excel 1-based index
 
   // Ensure the row exists
   const row = worksheet.getRow(rowIndex);
   if (!row) {
-    worksheet.addRow([]); // Add a new row if it doesn't exist
+    // If the row doesn't exist, add a new row to the sheet
+    worksheet.addRow([rowCompany]);
+    rowCompanies.push(rowCompany); // Update the rowCompanies array
+    rowIndex = rowCompanies.indexOf(rowCompany) + 1; // Update the rowIndex
   }
 
   // Get the current value in the cell
-  const cell = row.getCell(indexToColumnLetter(columnIndex));
+  const cell = worksheet.getCell(
+    `${indexToColumnLetter(columnIndex)}${rowIndex}`
+  );
   const existingValue = cell.value;
   const existingComment = cell.note;
 
@@ -312,7 +388,9 @@ submitButton.addEventListener("click", async function () {
   if (existingComment !== null && comment !== existingComment) {
     if (existingComment === undefined) {
       // If the existing comment is undefined, don't show the confirm box
-      cell.note = comment;
+      if (comment) {
+        cell.note = comment;
+      }
     } else {
       const confirmOverrideComment = confirm(
         `The current comment is "${existingComment}". Do you want to override it with "${comment}"?`
@@ -325,9 +403,12 @@ submitButton.addEventListener("click", async function () {
       }
     }
   } else {
-    // If the comment is empty, don't show the confirm box
+    // If the comment is not empty, add it to the cell
     if (comment) {
       cell.note = comment;
+    } else {
+      // If the comment is empty, remove any existing comment
+      cell.note = null;
     }
   }
 
