@@ -178,3 +178,23 @@ body {
 .affiliated-group-btn label {
   font-size: 14px;
 }
+
+/* RESPONSIVE START */
+@media screen and (max-width: 480px) {
+  .affiliated-group-btn label,
+  .amount-input.form-control,
+  .new-company-input,
+  .custom-btn.btn,
+  .comment-text-area .form-control {
+    font-size: 12px;
+  }
+
+  .comment-text-area.form-floating label {
+    font-size: 11px;
+  }
+
+  .table-container table {
+    font-size: 12px;
+  }
+}
+/* RESPONSIVE END */
