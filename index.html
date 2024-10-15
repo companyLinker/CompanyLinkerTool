@@ -102,14 +102,38 @@
               />
             </div>
             <div class="col-12">
+              <label for="employeeFile" class="form-label excel-file-input"
+                >Upload Names List (.xls, .xlsx)</label
+              >
+              <input
+                class="form-control form-control-lg"
+                type="file"
+                id="employeeFile"
+                accept=".xls, .xlsx"
+              />
+            </div>
+            <div class="col-12">
+              <div class="form-floating company-select-form-floating">
+                <select
+                  class="form-select company-select"
+                  id="employeeSelect"
+                  aria-label="Name Select"
+                  disabled
+                >
+                </select>
+                <label for="floatingSelect">Select a name</label>
+              </div>
+            </div>
+            <div class="col-12">
               <div class="form-floating comment-text-area">
                 <textarea
+                  disabled
                   class="form-control"
                   placeholder="Leave a comment here"
                   id="comment"
                   style="height: 80px"
                 ></textarea>
-                <label for="comment">Comments (Optional)</label>
+                <label for="comment">Comments</label>
               </div>
             </div>
             <div class="col-12">
