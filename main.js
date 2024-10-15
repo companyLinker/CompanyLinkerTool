@@ -7,6 +7,9 @@ const newCompanyInput = document.getElementById("newCompany");
 const addCompanyButton = document.getElementById("addCompanyButton");
 const affiliatedRadio = document.getElementById("affiliatedRadio");
 const nonAffiliatedRadio = document.getElementById("nonAffiliatedRadio");
+const employeeFileInput = document.getElementById("employeeFile");
+const employeeSelect = document.getElementById("employeeSelect");
+const commentTextarea = document.getElementById("comment");
 
 let workbook,
   worksheet,
@@ -25,6 +28,85 @@ function fillDiagonalCells() {
       fgColor: { argb: "FFFF0000" }, // Red color
     };
   });
+}
+
+// Function to populate the employee select
+function populateEmployeeSelect(employees) {
+  // Clear existing options
+  employeeSelect.innerHTML = '<option value="" disabled selected>Select an employee</option>';
+  
+  // Filter out empty entries and trim whitespace
+  const filteredEmployees = employees
+    .filter(employee => employee) // Remove empty entries
+    .map(employee => employee.trim()); // Trim whitespace
+
+  // Populate the select with filtered employee names
+  filteredEmployees.forEach((employee, index) => {
+    const option = document.createElement("option");
+    option.value = employee; // Use the employee name as the value
+    option.textContent = employee; // Display the employee name
+    employeeSelect.appendChild(option);
+  });
+
+  employeeSelect.disabled = filteredEmployees.length === 0; // Disable if no employees are available
+}
+
+// Function to handle employee file upload
+employeeFileInput.addEventListener("change", async function (event) {
+  const file = event.target.files[0];
+  const reader = new FileReader();
+
+  reader.onload = async function (event) {
+    const data = new Uint8Array(event.target.result);
+    const workbook = new ExcelJS.Workbook();
+    
+    // Load the workbook
+    await workbook.xlsx.load(data);
+    
+    // Assuming employee names are in the first sheet
+    const worksheet = workbook.worksheets[0];
+
+    // Extract employee names from the first column (you may adjust the column index)
+    const employees = [];
+    worksheet.eachRow({ includeEmpty: true }, function(row, rowNumber) {
+      // Assuming employee names are in the first column (index 1)
+      const employeeName = row.getCell(1).value;
+      if (typeof employeeName === 'string' && employeeName.trim() !== '') {
+        employees.push(employeeName.trim());
+      }
+    });
+
+    // Populate the employee select dropdown
+    populateEmployeeSelect(employees);
+  };
+
+  reader.readAsArrayBuffer(file); // Read the file as an ArrayBuffer
+});
+
+
+// Function to handle employee select change
+employeeSelect.addEventListener("change", function () {
+  const selectedEmployeeIndex = employeeSelect.selectedIndex;
+  if (selectedEmployeeIndex > 0) {
+    commentTextarea.disabled = false;
+  } else {
+    commentTextarea.disabled = true;
+  }
+});
+
+// Function to format the comment with the selected employee
+function formatComment(comment) {
+  const selectedEmployee = employeeSelect.value;
+  
+  // Check if an option is selected
+  if (selectedEmployee === "") {
+    return comment; // Return the comment without the employee name
+  }
+
+  const currentDate = new Date();
+  const formattedDate = currentDate.toLocaleString();
+  
+  return `"${comment}" by @${selectedEmployee} on ${formattedDate}`;
 }
 
 // Function to populate the data table
@@ -341,7 +423,8 @@ submitButton.addEventListener("click", async function () {
   const rowCompany = companyRowSelect.value;
   const columnCompany = companyColumnSelect.value;
   const amount = parseFloat(document.getElementById("amount").value);
-  const comment = document.getElementById("comment").value.trim(); // Get the comment from the textarea
+  const comment = commentTextarea.value.trim();
+  const selectedEmployee = employeeSelect.value;
 
   if (!rowCompany || !columnCompany || isNaN(amount)) {
     alert("Please select both companies and enter a valid amount.");
@@ -367,17 +450,13 @@ submitButton.addEventListener("click", async function () {
   }
 
   // Get the current value in the cell
-  const cell = worksheet.getCell(
-    `${indexToColumnLetter(columnIndex)}${rowIndex}`
-  );
+  const cell = worksheet.getCell(`${indexToColumnLetter(columnIndex)}${rowIndex}`);
   const existingValue = cell.value;
   const existingComment = cell.note;
 
   // Check if the existing value in the cell is the same
   if (existingValue !== null) {
-    const confirmOverride = confirm(
-      `The current value is ${existingValue}. Do you want to override it with ${amount}?`
-    );
+    const confirmOverride = confirm(`The current value is ${existingValue}. Do you want to override it with ${amount}?`);
 
     if (!confirmOverride) {
       return; // If the user chooses not to override, exit the function
@@ -385,31 +464,22 @@ submitButton.addEventListener("click", async function () {
   }
 
   // Check if the existing comment in the cell is the same
-  if (existingComment !== null && comment !== existingComment) {
-    if (existingComment === undefined) {
-      // If the existing comment is undefined, don't show the confirm box
-      if (comment) {
-        cell.note = comment;
-      }
-    } else {
-      const confirmOverrideComment = confirm(
-        `The current comment is "${existingComment}". Do you want to override it with "${comment}"?`
-      );
+  if (comment && selectedEmployee) {
+    const formattedComment = formatComment(comment, selectedEmployee);
+    if (existingComment !== null && existingComment !== formattedComment) {
+      const confirmOverrideComment = confirm(`The current comment is "${existingComment}". Do you want to override it with "${comment}"?`);
 
       if (!confirmOverrideComment) {
         return; // If the user chooses not to override, exit the function
       } else {
-        cell.note = comment;
+        cell.note = formattedComment;
       }
+    } else {
+      cell.note = formattedComment;
     }
   } else {
-    // If the comment is not empty, add it to the cell
-    if (comment) {
-      cell.note = comment;
-    } else {
-      // If the comment is empty, remove any existing comment
-      cell.note = null;
-    }
+    // If the comment is empty, remove any existing comment
+    cell.note = null;
   }
 
   // Set the amount in the correct cell in the Excel sheet
@@ -422,7 +492,7 @@ submitButton.addEventListener("click", async function () {
   companyRowSelect.value = "";
   companyColumnSelect.value = "";
   document.getElementById("amount").value = "";
-  document.getElementById("comment").value = ""; // Clear the comment textarea
+  commentTextarea.value = ""; // Clear the comment textarea
 });
 
 // Function to update the displayed data table
