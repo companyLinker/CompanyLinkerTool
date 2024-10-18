@@ -464,23 +464,23 @@ submitButton.addEventListener("click", async function () {
   }
 
   // Check if the existing comment in the cell is the same
-  if (comment && selectedEmployee) {
-    const formattedComment = formatComment(comment, selectedEmployee);
-    if (existingComment !== null && existingComment !== formattedComment) {
-      const confirmOverrideComment = confirm(`The current comment is "${existingComment}". Do you want to override it with "${comment}"?`);
+  // if (comment && selectedEmployee) {
+  //   const formattedComment = formatComment(comment, selectedEmployee);
+  //   if (existingComment !== null && existingComment !== formattedComment) {
+  //     const confirmOverrideComment = confirm(`The current comment is "${existingComment}". Do you want to override it with "${comment}"?`);
 
-      if (!confirmOverrideComment) {
-        return; // If the user chooses not to override, exit the function
-      } else {
-        cell.note = formattedComment;
-      }
-    } else {
-      cell.note = formattedComment;
-    }
-  } else {
-    // If the comment is empty, remove any existing comment
-    cell.note = null;
-  }
+  //     if (!confirmOverrideComment) {
+  //       return; // If the user chooses not to override, exit the function
+  //     } else {
+  //       cell.note = formattedComment;
+  //     }
+  //   } else {
+  //     cell.note = formattedComment;
+  //   }
+  // } else {
+  //   // If the comment is empty, remove any existing comment
+  //   cell.note = null;
+  // }
 
   // Set the amount in the correct cell in the Excel sheet
   cell.value = amount;
