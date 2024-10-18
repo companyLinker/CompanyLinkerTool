@@ -33,12 +33,13 @@ function fillDiagonalCells() {
 // Function to populate the employee select
 function populateEmployeeSelect(employees) {
   // Clear existing options
-  employeeSelect.innerHTML = '<option value="" disabled selected>Select an employee</option>';
-  
+  employeeSelect.innerHTML =
+    '<option value="" disabled selected>Select an employee</option>';
+
   // Filter out empty entries and trim whitespace
   const filteredEmployees = employees
-    .filter(employee => employee) // Remove empty entries
-    .map(employee => employee.trim()); // Trim whitespace
+    .filter((employee) => employee) // Remove empty entries
+    .map((employee) => employee.trim()); // Trim whitespace
 
   // Populate the select with filtered employee names
   filteredEmployees.forEach((employee, index) => {
@@ -59,19 +60,19 @@ employeeFileInput.addEventListener("change", async function (event) {
   reader.onload = async function (event) {
     const data = new Uint8Array(event.target.result);
     const workbook = new ExcelJS.Workbook();
-    
+
     // Load the workbook
     await workbook.xlsx.load(data);
-    
+
     // Assuming employee names are in the first sheet
     const worksheet = workbook.worksheets[0];
 
     // Extract employee names from the first column (you may adjust the column index)
     const employees = [];
-    worksheet.eachRow({ includeEmpty: true }, function(row, rowNumber) {
+    worksheet.eachRow({ includeEmpty: true }, function (row, rowNumber) {
       // Assuming employee names are in the first column (index 1)
       const employeeName = row.getCell(1).value;
-      if (typeof employeeName === 'string' && employeeName.trim() !== '') {
+      if (typeof employeeName === "string" && employeeName.trim() !== "") {
         employees.push(employeeName.trim());
       }
     });
@@ -82,7 +83,6 @@ employeeFileInput.addEventListener("change", async function (event) {
 
   reader.readAsArrayBuffer(file); // Read the file as an ArrayBuffer
 });
-
 
 // Function to handle employee select change
 employeeSelect.addEventListener("change", function () {
@@ -97,7 +97,7 @@ employeeSelect.addEventListener("change", function () {
 // Function to format the comment with the selected employee
 function formatComment(comment) {
   const selectedEmployee = employeeSelect.value;
-  
+
   // Check if an option is selected
   if (selectedEmployee === "") {
     return comment; // Return the comment without the employee name
@@ -105,7 +105,7 @@ function formatComment(comment) {
 
   const currentDate = new Date();
   const formattedDate = currentDate.toLocaleString();
-  
+
   return `"${comment}" by @${selectedEmployee} on ${formattedDate}`;
 }
 
@@ -450,13 +450,17 @@ submitButton.addEventListener("click", async function () {
   }
 
   // Get the current value in the cell
-  const cell = worksheet.getCell(`${indexToColumnLetter(columnIndex)}${rowIndex}`);
+  const cell = worksheet.getCell(
+    `${indexToColumnLetter(columnIndex)}${rowIndex}`
+  );
   const existingValue = cell.value;
   const existingComment = cell.note;
 
   // Check if the existing value in the cell is the same
   if (existingValue !== null) {
-    const confirmOverride = confirm(`The current value is ${existingValue}. Do you want to override it with ${amount}?`);
+    const confirmOverride = confirm(
+      `The current value is ${existingValue}. Do you want to override it with ${amount}?`
+    );
 
     if (!confirmOverride) {
       return; // If the user chooses not to override, exit the function
@@ -464,23 +468,27 @@ submitButton.addEventListener("click", async function () {
   }
 
   // Check if the existing comment in the cell is the same
-  // if (comment && selectedEmployee) {
-  //   const formattedComment = formatComment(comment, selectedEmployee);
-  //   if (existingComment !== null && existingComment !== formattedComment) {
-  //     const confirmOverrideComment = confirm(`The current comment is "${existingComment}". Do you want to override it with "${comment}"?`);
+  if (selectedEmployee) {
+    if (comment) {
+      const formattedComment = formatComment(comment, selectedEmployee);
 
-  //     if (!confirmOverrideComment) {
-  //       return; // If the user chooses not to override, exit the function
-  //     } else {
-  //       cell.note = formattedComment;
-  //     }
-  //   } else {
-  //     cell.note = formattedComment;
-  //   }
-  // } else {
-  //   // If the comment is empty, remove any existing comment
-  //   cell.note = null;
-  // }
+      if (existingComment !== null && existingComment !== formattedComment) {
+        const confirmOverrideComment = confirm(
+          `The current comment is "${existingComment}". Do you want to override it with "${formattedComment}"?`
+        );
+
+        if (!confirmOverrideComment) {
+          return; // If the user chooses not to override, exit the function
+        }
+      }
+
+      // Set the formatted comment
+      cell.note = formattedComment;
+    } else {
+      // If the comment is empty, remove any existing comment
+      cell.note = null;
+    }
+  } 
 
   // Set the amount in the correct cell in the Excel sheet
   cell.value = amount;
