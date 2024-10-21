@@ -203,6 +203,12 @@ companyColumnSelect.addEventListener("change", function () {
   populateDataTable(rowCompany, columnCompany);
 });
 
+var colOptions = { searchable: true };
+let colSelect = NiceSelect.bind(companyColumnSelect, colOptions);
+
+var rowOptions = { searchable: true };
+let rowSelect = NiceSelect.bind(companyRowSelect, rowOptions);
+
 // Function to read and parse the uploaded Excel file
 excelFileInput.addEventListener("change", async function (event) {
   const file = event.target.files[0];
@@ -232,6 +238,9 @@ excelFileInput.addEventListener("change", async function (event) {
       rowCompanies.filter((company) => companyList.includes(company))
     );
     populateSelect(companyColumnSelect, headers);
+
+    colSelect.update();
+    rowSelect.update();
 
     // Fill diagonal cells for matching companies
     fillDiagonalCells();
@@ -271,6 +280,9 @@ function updateCompanyDropdowns() {
   populateSelect(companyRowSelect, availableRowCompanies);
   populateSelect(companyColumnSelect, availableColumnCompanies);
 
+  colSelect.update();
+  rowSelect.update();
+
   // console.log("Row Companies:", availableRowCompanies);
   // console.log("Column Companies:", availableColumnCompanies);
 }
@@ -305,6 +317,8 @@ function disableSameCompany() {
     alert("You cannot select the same company in both row and column.");
     companyColumnSelect.value = ""; // Reset the column dropdown if the same is selected
     companyRowSelect.value = ""; // Reset the column dropdown if the same is selected
+    colSelect.update();
+    rowSelect.update();
   }
 }
 
@@ -422,6 +436,8 @@ addCompanyButton.addEventListener("click", addCompany);
 submitButton.addEventListener("click", async function () {
   const rowCompany = companyRowSelect.value;
   const columnCompany = companyColumnSelect.value;
+  colSelect.update();
+  rowSelect.update();
   const amount = parseFloat(document.getElementById("amount").value);
   const comment = commentTextarea.value.trim();
   const selectedEmployee = employeeSelect.value;
@@ -484,11 +500,8 @@ submitButton.addEventListener("click", async function () {
 
       // Set the formatted comment
       cell.note = formattedComment;
-    } else {
-      // If the comment is empty, remove any existing comment
-      cell.note = null;
     }
-  } 
+  }
 
   // Set the amount in the correct cell in the Excel sheet
   cell.value = amount;
@@ -497,10 +510,9 @@ submitButton.addEventListener("click", async function () {
   updateDataTable(columnCompany, rowCompany, amount); // Pass only the required data to the update function
 
   // Clear inputs after submission
-  companyRowSelect.value = "";
-  companyColumnSelect.value = "";
   document.getElementById("amount").value = "";
   commentTextarea.value = ""; // Clear the comment textarea
+  rowSelect.clear();
 });
 
 // Function to update the displayed data table
