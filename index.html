@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="nice-select2.css" />
     <link rel="stylesheet" href="bootstrap.min.css" />
     <link rel="stylesheet" href="styles.css" />
     <title>Company Linker Tool</title>
@@ -17,6 +18,7 @@
           <div class="row g-4 justify-content-between form-wrapper">
             <div class="col-12">
               <div
+                id="radioGroup"
                 class="btn-group affiliated-group-btn"
                 role="group"
                 aria-label="Basic radio toggle button group"
@@ -39,7 +41,7 @@
                   class="btn-check"
                   name="btnradio"
                   id="nonAffiliatedRadio"
-                  value="nonAffiliated"
+                  value="non-affiliated"
                   autocomplete="off"
                 />
                 <label class="btn btn-outline-light" for="nonAffiliatedRadio"
@@ -67,7 +69,12 @@
                   id="companyColumn"
                   aria-label="Company Select (Column)"
                 >
-                  <option value="" disabled selected>
+                  <option
+                    data-display="companyColumn"
+                    value=""
+                    disabled
+                    selected
+                  >
                     Select a company (Column)
                   </option>
                 </select>
@@ -83,7 +90,7 @@
                   id="companyRow"
                   aria-label="Company Select (Row)"
                 >
-                  <option value="" disabled selected>
+                  <option data-display="companyRow" value="" disabled selected>
                     Select a company (Row)
                   </option>
                 </select>
@@ -119,8 +126,7 @@
                   id="employeeSelect"
                   aria-label="Name Select"
                   disabled
-                >
-                </select>
+                ></select>
                 <label for="floatingSelect">Select a name</label>
               </div>
             </div>
@@ -199,6 +205,7 @@
       </div>
     </section>
     <!-- SCRIPTS START -->
+    <script src="nice-select2.js"></script>
     <script src="bootstrap.bundle.min.js"></script>
     <!-- <script src="./assets/scripts/xlsx.full.min.js"></script> -->
     <script src="exceljs.min.js"></script>
