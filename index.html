@@ -60,6 +60,27 @@
                 accept=".xls, .xlsx"
               />
             </div>
+            <div class="col-12"><h3 class="text-center">OR</h3></div>
+            <div class="col-12">
+              <div class="input-group mb-3">
+                <input
+                  id="googleSheetUrl"
+                  type="text"
+                  class="form-control form-control-lg"
+                  placeholder="Enter Google Sheet URL"
+                  aria-label="Enter Google Sheet URL"
+                  aria-describedby="authorize_button"
+                />
+                <button
+                  class="btn btn-primary btn-lg custom-btn"
+                  type="button"
+                  id="authorize_button"
+                  onclick="handleAuthClick()"
+                >
+                  Authorize
+                </button>
+              </div>
+            </div>
           </div>
           <div class="row g-4 justify-content-between form-wrapper">
             <div class="col-sm-6 col-12">
@@ -209,8 +230,19 @@
     <script src="bootstrap.bundle.min.js"></script>
     <!-- <script src="./assets/scripts/xlsx.full.min.js"></script> -->
     <script src="exceljs.min.js"></script>
-
     <script src="main.js"></script>
+    <script
+      async
+      defer
+      src="https://apis.google.com/js/api.js"
+      onload="gapiLoaded()"
+    ></script>
+    <script
+      async
+      defer
+      src="https://accounts.google.com/gsi/client"
+      onload="gisLoaded()"
+    ></script>
     <!-- SCRIPTS END -->
   </body>
 </html>
