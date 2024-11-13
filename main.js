@@ -14,20 +14,86 @@ const commentTextarea = document.getElementById("comment");
 let workbook,
   worksheet,
   companyList = [],
-  rowCompanies = [];
+  rowCompanies = [],
+  isGoogleSheetData = false;
 
-// Function to fill diagonal cells with red for matching companies
-function fillDiagonalCells() {
-  companyList.forEach((company, index) => {
-    const cell = worksheet.getCell(
-      `${indexToColumnLetter(index + 1)}${index + 1}`
-    );
-    cell.fill = {
-      type: "pattern",
-      pattern: "solid",
-      fgColor: { argb: "FFFF0000" }, // Red color
-    };
-  });
+async function getSheetId(spreadsheetId) {
+  try {
+    const response = await gapi.client.sheets.spreadsheets.get({
+      spreadsheetId: spreadsheetId,
+    });
+
+    // Log the sheets to find the correct sheetId
+    console.log("Sheets in the spreadsheet:", response.result.sheets);
+
+    // Assume you want the first sheet, you can modify this logic as needed
+    const sheet = response.result.sheets[0]; // Get the first sheet
+    return sheet.properties.sheetId; // Return the sheetId
+  } catch (error) {
+    console.error("Error fetching sheet ID:", error);
+    throw error; // Rethrow the error for handling elsewhere
+  }
+}
+
+async function fillDiagonalCells(sheetData, spreadsheetId) {
+  if (isGoogleSheetData) {
+    const sheetId = await getSheetId(spreadsheetId); // Get the correct sheet ID
+    const requests = []; // Array to hold the requests for batchUpdate
+    const range = sheetData.length; // Assuming square matrix for diagonal
+
+    // Loop through the diagonal elements and color specific indices
+    for (let index = 0; index <= range; index++) {
+      // Skip coloring for index 1 (Facebook)
+      if (index === 0) continue;
+
+      const request = {
+        repeatCell: {
+          range: {
+            sheetId: sheetId, // Use the correct sheet ID
+            startRowIndex: index,
+            endRowIndex: index + 1,
+            startColumnIndex: index,
+            endColumnIndex: index + 1,
+          },
+          cell: {
+            userEnteredFormat: {
+              backgroundColor: {
+                red: 1, // Full red
+                green: 0,
+                blue: 0,
+              },
+            },
+          },
+          fields: "userEnteredFormat(backgroundColor)",
+        },
+      };
+      requests.push(request);
+    }
+
+    // Make the batchUpdate request to apply the formatting
+    try {
+      await gapi.client.sheets.spreadsheets.batchUpdate({
+        spreadsheetId: spreadsheetId,
+        resource: {
+          requests: requests,
+        },
+      });
+      console.log("Diagonal cells filled with red color, skipping Facebook.");
+    } catch (error) {
+      console.error("Error applying cell formatting:", error);
+    }
+  } else {
+    companyList.forEach((company, index) => {
+      const cell = worksheet.getCell(
+        `${indexToColumnLetter(index + 1)}${index + 1}`
+      );
+      cell.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFFF0000" }, // Red color
+      };
+    });
+  }
 }
 
 // Function to populate the employee select
@@ -95,65 +161,196 @@ employeeSelect.addEventListener("change", function () {
 });
 
 // Function to format the comment with the selected employee
-function formatComment(comment) {
-  const selectedEmployee = employeeSelect.value;
+function formatComment(comment, selectedEmployee) {
+  if (isGoogleSheetData) {
+    const currentDate = new Date();
+    const formattedDate = currentDate.toLocaleString();
 
-  // Check if an option is selected
-  if (selectedEmployee === "") {
-    return comment; // Return the comment without the employee name
+    return `"${comment}" by @${selectedEmployee} on ${formattedDate}`;
+  } else {
+    const selectedEmployee = employeeSelect.value;
+
+    // Check if an option is selected
+    if (selectedEmployee === "") {
+      return comment; // Return the comment without the employee name
+    }
+
+    const currentDate = new Date();
+    const formattedDate = currentDate.toLocaleString();
+
+    return `"${comment}" by @${selectedEmployee} on ${formattedDate}`;
   }
-
-  const currentDate = new Date();
-  const formattedDate = currentDate.toLocaleString();
-
-  return `"${comment}" by @${selectedEmployee} on ${formattedDate}`;
 }
 
 // Function to populate the data table
-function populateDataTable(selectedRowCompany, selectedColumnCompany) {
+async function populateDataTable(selectedRowCompany, selectedColumnCompany) {
   const dataBody = document.getElementById("dataBody");
   const fragment = document.createDocumentFragment();
   const rows = {};
   const existingRows = Array.from(dataBody.rows);
 
-  const headerRow = worksheet.getRow(1);
-  const columnCount = headerRow.values.length;
+  // Check if the data is coming from a Google Sheet
+  if (isGoogleSheetData) {
+    const sheetUrl = document.getElementById("googleSheetUrl").value;
+    const sheetIdMatch = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
 
-  for (let rowIndex = 2; rowIndex <= worksheet.rowCount; rowIndex++) {
-    const row = worksheet.getRow(rowIndex);
-    const rowCompany = row.getCell(1).value;
-
-    // If a specific row company is selected and it doesn't match, skip this row
-    if (selectedRowCompany && rowCompany !== selectedRowCompany) {
-      continue;
+    if (!sheetIdMatch) {
+      document.getElementById("content").innerText =
+        "Invalid Google Sheet URL.";
+      return;
     }
 
-    for (let columnIndex = 2; columnIndex <= columnCount; columnIndex++) {
-      const amount = row.getCell(columnIndex).value;
-      const columnCompany = headerRow.getCell(columnIndex).value;
+    const spreadsheetId = sheetIdMatch[1]; // Extracted spreadsheet ID
 
-      // If a specific column company is selected and it doesn't match, skip this column
-      if (selectedColumnCompany && columnCompany !== selectedColumnCompany) {
+    try {
+      // Step 1: Get the spreadsheet metadata to retrieve sheet names
+      const spreadsheetResponse = await gapi.client.sheets.spreadsheets.get({
+        spreadsheetId: spreadsheetId,
+      });
+
+      const sheets = spreadsheetResponse.result.sheets;
+      if (!sheets || sheets.length === 0) {
+        document.getElementById("content").innerText =
+          "No sheets found in the spreadsheet.";
+        return;
+      }
+
+      // Step 2: Select the first sheet name (or any other logic to choose a sheet)
+      const sheetName = sheets[0].properties.title; // Get the title of the first sheet
+      console.log("Using sheet name:", sheetName);
+
+      // Step 3: Fetch data from the selected sheet
+      const response = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: spreadsheetId,
+        range: sheetName, // Use the dynamic sheet name
+      });
+
+      const range = response.result;
+      if (!range || !range.values || range.values.length === 0) {
+        document.getElementById("content").innerText = "No values found.";
+        return;
+      }
+
+      // Store data in the desired format
+      const allSheetsData = [range]; // Wrapping it in an array to mimic your original structure
+      const firstSheetData = allSheetsData[0].values;
+
+      // Declare new variables instead of reassigning constants
+      const companyList = firstSheetData[0].slice(1); // First row (header)
+      const rowCompanies = firstSheetData.slice(1).map((row) => row[0]); // First column (row companies)
+
+      // Output the results to the console for debugging
+      console.log("Company List:", companyList);
+      console.log("Row Companies:", rowCompanies);
+
+      // Populate rows based on the fetched data
+      for (let rowIndex = 1; rowIndex < firstSheetData.length; rowIndex++) {
+        const row = firstSheetData[rowIndex];
+        const rowCompany = row[0];
+
+        // If a specific row company is selected and it doesn't match, skip this row
+        if (selectedRowCompany && rowCompany !== selectedRowCompany) {
+          continue;
+        }
+
+        for (let columnIndex = 1; columnIndex < row.length; columnIndex++) {
+          let amount = row[columnIndex];
+          const columnCompany = companyList[columnIndex - 1]; // Adjust index for column company
+
+          // Keep the value as is if it is formatted in parentheses
+          if (typeof amount === "string") {
+            // Remove any dollar signs and commas
+            amount = amount.replace(/[$,]/g, ""); // Remove $, and commas
+
+            // Check if the value is formatted as (value)
+            if (amount.startsWith("(") && amount.endsWith(")")) {
+              // Keep the amount as a string with parentheses
+              amount = `(${amount.slice(1, -1)})`; // Retain the format (value)
+            }
+          }
+
+          // If a specific column company is selected and it doesn't match, skip this column
+          if (
+            selectedColumnCompany &&
+            columnCompany !== selectedColumnCompany
+          ) {
+            continue;
+          }
+
+          // Check if there is a valid amount and row and column companies are not the same
+          if (
+            amount !== null &&
+            amount !== undefined &&
+            amount.trim() !== "" && // Check for empty string
+            rowCompany !== columnCompany // Ensure row and column companies are not the same
+          ) {
+            const key = `${columnCompany}-${rowCompany}`;
+            if (!rows[key]) {
+              rows[key] = {
+                columnCompany,
+                rowCompany,
+                amounts: [amount],
+              };
+            } else {
+              rows[key].amounts.push(amount);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      document.getElementById("content").innerText = err.message;
+      return;
+    }
+  } else {
+    // Existing Excel JS library logic goes here
+    const headerRow = worksheet.getRow(1);
+    const columnCount = headerRow.values.length;
+
+    for (let rowIndex = 2; rowIndex <= worksheet.rowCount; rowIndex++) {
+      const row = worksheet.getRow(rowIndex);
+      const rowCompany = row.getCell(1).value;
+
+      // If a specific row company is selected and it doesn't match, skip this row
+      if (selectedRowCompany && rowCompany !== selectedRowCompany) {
         continue;
       }
 
-      // Check if there is a valid amount and row and column companies are not the same
-      if (
-        amount !== null &&
-        amount !== undefined &&
-        String(amount).trim() !== "" &&
-        !isNaN(parseFloat(String(amount).trim())) &&
-        rowCompany !== columnCompany
-      ) {
-        const key = `${columnCompany}-${rowCompany}`;
-        if (!rows[key]) {
-          rows[key] = {
-            columnCompany,
-            rowCompany,
-            amounts: [amount],
-          };
-        } else {
-          rows[key].amounts.push(amount);
+      for (let columnIndex = 2; columnIndex <= columnCount; columnIndex++) {
+        let amount = row.getCell(columnIndex).value;
+        const columnCompany = headerRow.getCell(columnIndex).value;
+
+        // Keep the value as is if it is formatted in parentheses
+        if (typeof amount === "string") {
+          amount = amount.replace(/[$,]/g, ""); // Remove $, and commas
+          if (amount.startsWith("(") && amount.endsWith(")")) {
+            // Keep the amount as a string with parentheses
+            amount = `(${amount.slice(1, -1)})`; // Retain the format (value)
+          }
+        }
+
+        // If a specific column company is selected and it doesn't match, skip this column
+        if (selectedColumnCompany && columnCompany !== selectedColumnCompany) {
+          continue;
+        }
+
+        // Check if there is a valid amount and row and column companies are not the same
+        if (
+          amount !== null &&
+          amount !== undefined &&
+          String(amount).trim() !== "" &&
+          !isNaN(parseFloat(String(amount).trim())) &&
+          rowCompany !== columnCompany
+        ) {
+          const key = `${columnCompany}-${rowCompany}`;
+          if (!rows[key]) {
+            rows[key] = {
+              columnCompany,
+              rowCompany,
+              amounts: [amount],
+            };
+          } else {
+            rows[key].amounts.push(amount);
+          }
         }
       }
     }
@@ -167,12 +364,16 @@ function populateDataTable(selectedRowCompany, selectedColumnCompany) {
   // Add the new rows to the fragment
   Object.keys(rows).forEach((key) => {
     const row = rows[key];
+    const totalAmount = row.amounts.join(", "); // Join amounts as a string for display
+
+    // Define rowElement here
     const rowElement = document.createElement("tr");
     rowElement.innerHTML = `
       <td>${row.columnCompany}</td>
       <td>${row.rowCompany}</td>
-      <td>${row.amounts.join(", ")}</td>
+      <td>${totalAmount}</td> <!-- Display the total amount -->
     `;
+
     fragment.appendChild(rowElement);
   });
 
@@ -258,10 +459,10 @@ function updateCompanyDropdowns() {
 
   // Determine available companies for row and column selections
   let availableRowCompanies, availableColumnCompanies;
-
+  console.log(rowCompanies);
   // Find the index of the first blank row that separates affiliated and non-affiliated companies
   let blankRowIndex = rowCompanies.findIndex((company) => !company);
-
+  console.log(blankRowIndex, ":::blankRowIndex");
   if (isAffiliated) {
     // Affiliated: Show only companies that exist in both rows and columns, excluding the blank row
     availableRowCompanies = rowCompanies
@@ -360,61 +561,285 @@ async function addCompany() {
     return;
   }
 
-  // Find the index of the second blank row (separator) - Improved Blank Check
-  let blankRowIndex = rowCompanies.findIndex((company, index) => {
-    return (
-      (company === null ||
-        company === undefined ||
-        company.toString().trim() === "") &&
-      index < rowCompanies.length - 1
-    );
-  });
+  // If using Google Sheet data
+  if (isGoogleSheetData) {
+    try {
+      // Get the sheet URL and extract spreadsheet ID
+      const sheetUrl = document.getElementById("googleSheetUrl").value;
+      const sheetIdMatch = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
 
-  if (blankRowIndex === -1) {
-    // If no second blank row, treat the end as the separator
-    blankRowIndex = rowCompanies.length;
-  }
+      if (!sheetIdMatch) {
+        alert("Invalid Google Sheet URL.");
+        return;
+      }
 
-  // console.log("rowCompanies before adding:", rowCompanies);
-  // console.log("blankRowIndex:", blankRowIndex);
+      const spreadsheetId = sheetIdMatch[1];
 
-  if (affiliatedRadio.checked) {
-    // Affiliated mode:
-    const columnIndex = companyList.length + 1;
-    const rowIndex = columnIndex;
+      // Get the sheet metadata to retrieve sheet names
+      const spreadsheetResponse = await gapi.client.sheets.spreadsheets.get({
+        spreadsheetId: spreadsheetId,
+      });
 
-    // Add to column header
-    worksheet.getCell(`${indexToColumnLetter(columnIndex)}1`).value =
-      newCompany;
-    companyList.push(newCompany);
+      const sheets = spreadsheetResponse.result.sheets;
+      if (!sheets || sheets.length === 0) {
+        alert("No sheets found in the spreadsheet.");
+        return;
+      }
 
-    // Insert a new row before the blank row
-    worksheet.spliceRows(blankRowIndex + 2, 0, [newCompany]);
-    rowCompanies.splice(blankRowIndex, 0, newCompany);
+      // Use the first sheet by default (you can modify this logic if needed)
+      const sheetName = sheets[0].properties.title;
+
+      // Fetch the current sheet data
+      const response = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: spreadsheetId,
+        range: sheetName,
+      });
+
+      const range = response.result;
+      if (!range || !range.values || range.values.length === 0) {
+        alert("No values found in the sheet.");
+        return;
+      }
+
+      // Find the blank row index
+      let blankRowIndex = rowCompanies.findIndex((company, index) => {
+        return (
+          (company === null ||
+            company === undefined ||
+            company.toString().trim() === "") &&
+          index < rowCompanies.length - 1
+        );
+      });
+
+      if (blankRowIndex === -1) {
+        blankRowIndex = rowCompanies.length;
+      }
+
+      // Prepare the request for updating the sheet
+      const requests = [];
+
+      if (affiliatedRadio.checked) {
+        // Affiliated mode: Add to column headers and rows
+        const columnIndex = companyList.length + 1;
+
+        // Add header request
+        requests.push({
+          insertDimension: {
+            range: {
+              sheetId: sheets[0].properties.sheetId,
+              dimension: "COLUMNS",
+              startIndex: columnIndex, // Insert at the end of the current columns
+              endIndex: columnIndex + 1,
+            },
+            inheritFromBefore: false,
+          },
+        });
+
+        // Set the new column header value
+        requests.push({
+          updateCells: {
+            rows: [
+              {
+                values: [
+                  {
+                    userEnteredValue: { stringValue: newCompany },
+                  },
+                ],
+              },
+            ],
+            fields: "userEnteredValue",
+            start: {
+              sheetId: sheets[0].properties.sheetId,
+              rowIndex: 0, // Header row
+              columnIndex: columnIndex, // New column index
+            },
+          },
+        });
+
+        // Add row request
+        requests.push({
+          insertDimension: {
+            range: {
+              sheetId: sheets[0].properties.sheetId,
+              dimension: "ROWS",
+              startIndex: blankRowIndex + 1,
+              endIndex: blankRowIndex + 2,
+            },
+            inheritFromBefore: false,
+          },
+        });
+
+        // Set the new row value
+        requests.push({
+          updateCells: {
+            rows: [
+              {
+                values: [
+                  {
+                    userEnteredValue: { stringValue: newCompany },
+                  },
+                ],
+              },
+            ],
+            fields: "userEnteredValue",
+            start: {
+              sheetId: sheets[0].properties.sheetId,
+              rowIndex: blankRowIndex + 1,
+              columnIndex: 0,
+            },
+          },
+        });
+      } else {
+        // Non-affiliated mode: Add row at the end of the second list
+        let lastNonEmptyRowIndex = rowCompanies.length; // Start with the length of rowCompanies
+
+        // Find the last non-empty row in the second list
+        for (let i = rowCompanies.length - 1; i >= 0; i--) {
+          if (
+            rowCompanies[i] !== null &&
+            rowCompanies[i] !== undefined &&
+            rowCompanies[i].toString().trim() !== ""
+          ) {
+            lastNonEmptyRowIndex = i + 1; // Set to the next index
+            break;
+          }
+        }
+
+        // Insert a new row after the last non-empty row
+        requests.push({
+          insertDimension: {
+            range: {
+              sheetId: sheets[0].properties.sheetId,
+              dimension: "ROWS",
+              startIndex: lastNonEmptyRowIndex + 1, // Insert after the last non-empty row
+              endIndex: lastNonEmptyRowIndex + 2, // Insert one new row
+            },
+            inheritFromBefore: false,
+          },
+        });
+
+        // Set the new row value
+        requests.push({
+          updateCells: {
+            rows: [
+              {
+                values: [
+                  {
+                    userEnteredValue: { stringValue: newCompany },
+                  },
+                ],
+              },
+            ],
+            fields: "userEnteredValue",
+            start: {
+              sheetId: sheets[0].properties.sheetId,
+              rowIndex: lastNonEmptyRowIndex + 1, // Set the value in the newly inserted row
+              columnIndex: 0,
+            },
+          },
+        });
+      }
+
+      // Execute batch update
+      await gapi.client.sheets.spreadsheets.batchUpdate({
+        spreadsheetId: spreadsheetId,
+        resource: { requests: requests },
+      });
+
+      // Refetch the updated sheet data
+      const updatedResponse = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: spreadsheetId,
+        range: sheetName,
+      });
+
+      // Update local data structures
+      const updatedData = updatedResponse.result.values;
+      companyList = updatedData[0].slice(1);
+      rowCompanies = updatedData.slice(1).map((row) => row[0]);
+
+      // Update dropdowns and UI
+      updateCompanyDropdowns();
+      newCompanyInput.value = "";
+      fillDiagonalCells(companyList, spreadsheetId);
+    } catch (error) {
+      console.error("Error adding company to Google Sheet:", error);
+      alert("Failed to add company: " + error.message);
+    }
   } else {
-    // Non-affiliated mode: Add after the blank row
-    rowCompanies.splice(blankRowIndex + 1, 0, newCompany);
-    worksheet.addRow([newCompany], blankRowIndex + 2);
+    // Existing Excel file upload logic remains unchanged
+    // Check if the company already exists
+    if (companyList.includes(newCompany) || rowCompanies.includes(newCompany)) {
+      alert("This company already exists.");
+      return;
+    }
+
+    // Find the index of the second blank row (separator) - Improved Blank Check
+    let blankRowIndex = rowCompanies.findIndex((company, index) => {
+      return (
+        (company === null ||
+          company === undefined ||
+          company.toString().trim() === "") &&
+        index < rowCompanies.length - 1
+      );
+    });
+
+    if (blankRowIndex === -1) {
+      // If no second blank row, treat the end as the separator
+      blankRowIndex = rowCompanies.length;
+    }
+
+    if (affiliatedRadio.checked) {
+      // Affiliated mode:
+      const columnIndex = companyList.length + 1;
+
+      // Add to column header
+      worksheet.getCell(`${indexToColumnLetter(columnIndex)}1`).value =
+        newCompany;
+      companyList.push(newCompany);
+
+      // Insert a new row before the blank row
+      worksheet.spliceRows(blankRowIndex + 2, 0, [newCompany]);
+      rowCompanies.splice(blankRowIndex, 0, newCompany);
+    } else {
+      // Non-affiliated mode: Add after the last entry of the second list
+      let lastNonEmptyRowIndex = rowCompanies.length; // Start with the length of rowCompanies
+
+      // Find the last non-empty row in the second list
+      for (let i = rowCompanies.length - 1; i >= 0; i--) {
+        if (
+          rowCompanies[i] !== null &&
+          rowCompanies[i] !== undefined &&
+          rowCompanies[i].toString().trim() !== ""
+        ) {
+          lastNonEmptyRowIndex = i + 1; // Set to the next index
+          break;
+        }
+      }
+
+      // Insert a new row after the last non-empty row
+      worksheet.spliceRows(lastNonEmptyRowIndex + 2, 0, [newCompany]);
+      rowCompanies.splice(lastNonEmptyRowIndex + 1, 0, newCompany);
+    }
+
+    // Update the worksheet.rowCount property if necessary
+    worksheet.rowCount = Math.max(worksheet.rowCount, rowCompanies.length + 1);
+
+    // Recalculate indices
+    companyList = worksheet.getRow(1).values.slice(1);
+    rowCompanies = [];
+    for (let i = 2; i <= worksheet.rowCount; i++) {
+      rowCompanies.push(worksheet.getRow(i).getCell(1).value);
+    }
+
+    // Populate both select boxes again
+    updateCompanyDropdowns();
+
+    // Clear the input field
+    newCompanyInput.value = "";
+
+    // Fill diagonal cells for matching companies
+    fillDiagonalCells();
   }
-
-  // Update the worksheet.rowCount property if necessary
-  worksheet.rowCount = Math.max(worksheet.rowCount, rowCompanies.length + 1);
-
-  // Recalculate indices
-  companyList = worksheet.getRow(1).values.slice(1);
-  rowCompanies = [];
-  for (let i = 2; i <= worksheet.rowCount; i++) {
-    rowCompanies.push(worksheet.getRow(i).getCell(1).value);
-  }
-
-  // Populate both select boxes again
-  updateCompanyDropdowns();
-
-  // Clear the input field
-  newCompanyInput.value = "";
-
-  // Fill diagonal cells for matching companies
-  fillDiagonalCells();
 }
 
 // Function to convert a 1-based index to an Excel column letter
@@ -454,60 +879,207 @@ submitButton.addEventListener("click", async function () {
 
   // Find row and column indices of the selected companies
   let rowIndex = rowCompanies.indexOf(rowCompany) + 2; // Add 1 for Excel 1-based index
-  const columnIndex = companyList.indexOf(columnCompany) + 1; // Add 1 for Excel 1-based index
+  let columnIndex;
 
-  // Ensure the row exists
-  const row = worksheet.getRow(rowIndex);
-  if (!row) {
-    // If the row doesn't exist, add a new row to the sheet
-    worksheet.addRow([rowCompany]);
-    rowCompanies.push(rowCompany); // Update the rowCompanies array
-    rowIndex = rowCompanies.indexOf(rowCompany) + 1; // Update the rowIndex
-  }
+  if (isGoogleSheetData) {
+    // Dynamically extract spreadsheetId and sheetName for Google Sheets
+    const sheetUrl = document.getElementById("googleSheetUrl").value;
+    const sheetIdMatch = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
 
-  // Get the current value in the cell
-  const cell = worksheet.getCell(
-    `${indexToColumnLetter(columnIndex)}${rowIndex}`
-  );
-  const existingValue = cell.value;
-  const existingComment = cell.note;
-
-  // Check if the existing value in the cell is the same
-  if (existingValue !== null) {
-    const confirmOverride = confirm(
-      `The current value is ${existingValue}. Do you want to override it with ${amount}?`
-    );
-
-    if (!confirmOverride) {
-      return; // If the user chooses not to override, exit the function
+    if (!sheetIdMatch) {
+      alert("Invalid Google Sheet URL.");
+      return;
     }
-  }
 
-  // Check if the existing comment in the cell is the same
-  if (selectedEmployee) {
-    if (comment) {
-      const formattedComment = formatComment(comment, selectedEmployee);
+    const spreadsheetId = sheetIdMatch[1];
 
-      if (existingComment !== null && existingComment !== formattedComment) {
-        const confirmOverrideComment = confirm(
-          `The current comment is "${existingComment}". Do you want to override it with "${formattedComment}"?`
+    try {
+      // Get the spreadsheet metadata to retrieve sheet names
+      const spreadsheetResponse = await gapi.client.sheets.spreadsheets.get({
+        spreadsheetId: spreadsheetId,
+      });
+
+      const sheets = spreadsheetResponse.result.sheets;
+      if (!sheets || sheets.length === 0) {
+        alert("No sheets found in the spreadsheet.");
+        return;
+      }
+
+      // Use the first sheet by default (you can modify this logic if needed)
+      const sheetName = sheets[0].properties.title;
+      const sheetId = sheets[0].properties.sheetId;
+
+      columnIndex = companyList.indexOf(columnCompany) + 2; // Add 1 for Excel 1-based index
+
+      // Prepare the range for the specific cell
+      const cellRange = `${indexToColumnLetter(columnIndex)}${rowIndex}`;
+      const fullRange = `${sheetName}!${cellRange}`;
+
+      // Get existing value
+      const response = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: spreadsheetId,
+        range: fullRange,
+      });
+
+      const existingValue = response.result.values
+        ? response.result.values[0][0]
+        : null;
+
+      // Check if the existing value in the cell is the same
+      if (existingValue !== null) {
+        const confirmOverride = confirm(
+          `The current value is ${existingValue}. Do you want to override it with ${amount}?`
         );
 
-        if (!confirmOverrideComment) {
+        if (!confirmOverride) {
           return; // If the user chooses not to override, exit the function
         }
       }
 
-      // Set the formatted comment
-      cell.note = formattedComment;
+      // Prepare the value to update
+      const updateResponse =
+        await gapi.client.sheets.spreadsheets.values.update({
+          spreadsheetId: spreadsheetId,
+          range: fullRange,
+          valueInputOption: "RAW",
+          resource: {
+            values: [[amount]],
+          },
+        });
+
+      // Add comment if employee and comment text are provided
+      if (selectedEmployee && comment) {
+        // Format the comment with employee and timestamp
+        const formattedComment = formatComment(comment, selectedEmployee);
+
+        // First, check for existing comments
+        try {
+          // Retrieve sheet metadata to check existing comments
+          const spreadsheetResponse = await gapi.client.sheets.spreadsheets.get(
+            {
+              spreadsheetId: spreadsheetId,
+              includeGridData: true,
+              ranges: [fullRange],
+            }
+          );
+
+          // Extract existing note/comment from the cell
+          const sheet = spreadsheetResponse.result.sheets[0];
+          const rowData = sheet.data[0].rowData[0];
+          const cellData = rowData.values[0];
+          const existingNote = cellData.note;
+
+          // Check if existing comment is different
+          if (existingNote) {
+            const confirmOverrideComment = confirm(
+              `An existing comment exists: "${existingNote}". Do you want to override it with "${formattedComment}"?`
+            );
+
+            if (!confirmOverrideComment) {
+              return; // If the user chooses not to override, exit the function
+            }
+          }
+
+          // Proceed with adding/updating the comment
+          const commentResponse =
+            await gapi.client.sheets.spreadsheets.batchUpdate({
+              spreadsheetId: spreadsheetId,
+              resource: {
+                requests: [
+                  {
+                    repeatCell: {
+                      range: {
+                        sheetId: sheetId,
+                        startRowIndex: rowIndex - 1,
+                        endRowIndex: rowIndex,
+                        startColumnIndex: columnIndex - 1,
+                        endColumnIndex: columnIndex,
+                      },
+                      cell: {
+                        note: formattedComment,
+                      },
+                      fields: "note",
+                    },
+                  },
+                ],
+              },
+            });
+
+          console.log("Comment added successfully", commentResponse);
+        } catch (commentError) {
+          console.error("Error checking/adding comment:", commentError);
+          alert(`Could not add comment. Error: ${commentError.message}`);
+        }
+      }
+
+      // Update the displayed list
+      updateDataTable(columnCompany, rowCompany, amount);
+    } catch (error) {
+      console.error("Error updating Google Sheet:", error);
+      alert("Failed to update the sheet. " + error.message);
+      return;
     }
+  } else {
+    // Existing Excel file logic
+    if (isGoogleSheetData) {
+      columnIndex = companyList.indexOf(columnCompany) + 2; // Add 1 for Excel 1-based index
+    } else {
+      columnIndex = companyList.indexOf(columnCompany) + 1; // Add 1 for Excel 1-based index
+    }
+
+    // Ensure the row exists
+    const row = worksheet.getRow(rowIndex);
+    if (!row) {
+      // If the row doesn't exist, add a new row to the sheet
+      worksheet.addRow([rowCompany]);
+      rowCompanies.push(rowCompany); // Update the rowCompanies array
+      rowIndex = rowCompanies.indexOf(rowCompany) + 1; // Update the rowIndex
+    }
+
+    // Get the current value in the cell
+    const cell = worksheet.getCell(
+      `${indexToColumnLetter(columnIndex)}${rowIndex}`
+    );
+    const existingValue = cell.value;
+    const existingComment = cell.note;
+
+    // Check if the existing value in the cell is the same
+    if (existingValue !== null) {
+      const confirmOverride = confirm(
+        `The current value is ${existingValue}. Do you want to override it with ${amount}?`
+      );
+
+      if (!confirmOverride) {
+        return; // If the user chooses not to override, exit the function
+      }
+    }
+
+    // Check if the existing comment in the cell is the same
+    if (selectedEmployee) {
+      if (comment) {
+        const formattedComment = formatComment(comment, selectedEmployee);
+
+        if (existingComment !== null && existingComment !== formattedComment) {
+          const confirmOverrideComment = confirm(
+            `The current comment is "${existingComment}". Do you want to override it with "${formattedComment}"?`
+          );
+
+          if (!confirmOverrideComment) {
+            return; // If the user chooses not to override, exit the function
+          }
+        }
+
+        // Set the formatted comment
+        cell.note = formattedComment;
+      }
+    }
+
+    // Set the amount in the correct cell in the Excel sheet
+    cell.value = amount;
+
+    // Update the displayed list
+    updateDataTable(columnCompany, rowCompany, amount);
   }
-
-  // Set the amount in the correct cell in the Excel sheet
-  cell.value = amount;
-
-  // Update the displayed list
-  updateDataTable(columnCompany, rowCompany, amount); // Pass only the required data to the update function
 
   // Clear inputs after submission
   document.getElementById("amount").value = "";
@@ -563,3 +1135,178 @@ downloadButton.addEventListener("click", async function () {
   link.download = "UpdatedCompanyMatrix.xlsx";
   link.click();
 });
+
+// GOOGLE SHEET START
+const CLIENT_ID =
+  "115660540991-17v3opc0ja64ivqt8rrrd5kt4fogjto7.apps.googleusercontent.com";
+const API_KEY = "AIzaSyA9EniwLTLORTX_B2RKcrKHNUujpmLMuyw";
+
+// Discovery doc URL for APIs used by the quickstart
+const DISCOVERY_DOC =
+  "https://sheets.googleapis.com/$discovery/rest?version=v4";
+
+// Authorization scopes required by the API; multiple scopes can be
+// included, separated by spaces.
+const SCOPES = "https://www.googleapis.com/auth/spreadsheets";
+
+let tokenClient;
+let gapiInited = false;
+let gisInited = false;
+
+document.getElementById("authorize_button").style.visibility = "hidden";
+// document.getElementById("signout_button").style.visibility = "hidden";
+
+/**
+ * Callback after api.js is loaded.
+ */
+function gapiLoaded() {
+  gapi.load("client", initializeGapiClient);
+}
+
+/**
+ * Callback after the API client is loaded. Loads the
+ * discovery doc to initialize the API.
+ */
+async function initializeGapiClient() {
+  await gapi.client.init({
+    apiKey: API_KEY,
+    discoveryDocs: [DISCOVERY_DOC],
+  });
+  gapiInited = true;
+  maybeEnableButtons();
+}
+
+/**
+ * Callback after Google Identity Services are loaded.
+ */
+function gisLoaded() {
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: CLIENT_ID,
+    scope: SCOPES,
+    callback: "", // defined later
+  });
+  gisInited = true;
+  maybeEnableButtons();
+}
+
+document.addEventListener("DOMContentLoaded", function () {
+  gapiLoaded();
+  initializeGapiClient();
+  gisLoaded();
+});
+
+/**
+ * Enables user interaction after all libraries are loaded.
+ */
+function maybeEnableButtons() {
+  if (gapiInited && gisInited) {
+    document.getElementById("authorize_button").style.visibility = "visible";
+  }
+}
+
+/**
+ *  Sign in the user upon button click.
+ */
+function handleAuthClick() {
+  isGoogleSheetData = true;
+
+  tokenClient.callback = async (resp) => {
+    if (resp.error !== undefined) {
+      throw resp;
+    }
+    document.getElementById("authorize_button").innerText = "Refresh";
+
+    // Fetch data after successful authentication
+    await fetchDataFromSheet();
+  };
+
+  if (gapi.client.getToken() === null) {
+    // Prompt the user to select a Google Account and ask for consent to share their data
+    tokenClient.requestAccessToken({ prompt: "consent" });
+  } else {
+    // Skip display of account chooser and consent dialog for an existing session.
+    tokenClient.requestAccessToken({ prompt: "" });
+  }
+}
+
+/**
+ * Fetch data from the Google Sheet using the provided URL.
+ */
+async function fetchDataFromSheet() {
+  const sheetUrl = document.getElementById("googleSheetUrl").value;
+  const sheetIdMatch = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
+
+  if (!sheetIdMatch) {
+    document.getElementById("content").innerText = "Invalid Google Sheet URL.";
+    return;
+  }
+
+  const spreadsheetId = sheetIdMatch[1]; // Extracted spreadsheet ID
+
+  try {
+    // Step 1: Get the spreadsheet metadata to retrieve sheet names
+    const spreadsheetResponse = await gapi.client.sheets.spreadsheets.get({
+      spreadsheetId: spreadsheetId,
+    });
+
+    const sheets = spreadsheetResponse.result.sheets;
+    if (!sheets || sheets.length === 0) {
+      document.getElementById("content").innerText =
+        "No sheets found in the spreadsheet.";
+      return;
+    }
+
+    // Step 2: Select the first sheet name (or any other logic to choose a sheet)
+    const sheetName = sheets[0].properties.title; // Get the title of the first sheet
+    console.log("Using sheet name:", sheetName);
+
+    // Step 3: Fetch data from the selected sheet
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: spreadsheetId,
+      range: sheetName, // Use the dynamic sheet name
+    });
+
+    const range = response.result;
+    if (!range || !range.values || range.values.length === 0) {
+      document.getElementById("content").innerText = "No values found.";
+      return;
+    }
+
+    // Store data in the desired format
+    const allSheetsData = [range]; // Wrapping it in an array to mimic your original structure
+    const firstSheetData = allSheetsData[0].values;
+
+    // Declare new variables instead of reassigning constants
+    companyList = firstSheetData[0].slice(1); // First row (header)
+    rowCompanies = firstSheetData.slice(1).map((row) => row[0]); // First column (row companies)
+
+    // Output the results to the console for debugging
+    console.log("Company List:", companyList);
+    console.log("Row Companies:", rowCompanies);
+
+    populateSelect(companyRowSelect, rowCompanies);
+    populateSelect(companyColumnSelect, companyList);
+
+    // Reinitialize Nice Select
+    if (colSelect) colSelect.destroy();
+    if (rowSelect) rowSelect.destroy();
+
+    colSelect = NiceSelect.bind(companyColumnSelect, { searchable: true });
+    rowSelect = NiceSelect.bind(companyRowSelect, { searchable: true });
+
+    // Fill diagonal cells for matching companies
+    await fillDiagonalCells(companyList, spreadsheetId);
+
+    // Update dropdowns based on the affiliation type
+    updateCompanyDropdowns();
+  } catch (err) {
+    document.getElementById("content").innerText = err.message;
+    console.error("Error fetching data:", err);
+  }
+}
+
+// Add event listener for the authorize button
+document
+  .getElementById("authorize_button")
+  .addEventListener("click", handleAuthClick);
+// GOOGLE SHEET END
