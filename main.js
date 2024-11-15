@@ -1453,8 +1453,8 @@ downloadButton.addEventListener("click", async function () {
 
 // GOOGLE SHEET START
 const CLIENT_ID =
-  process.env.NETLIFY_CLIENT_ID;
-const API_KEY = process.env.NETLIFY_API_KEY;
+  '115660540991-17v3opc0ja64ivqt8rrrd5kt4fogjto7.apps.googleusercontent.com';
+const API_KEY = 'AIzaSyA9EniwLTLORTX_B2RKcrKHNUujpmLMuyw';
 
 // Discovery doc URL for APIs used by the quickstart
 const DISCOVERY_DOC =
