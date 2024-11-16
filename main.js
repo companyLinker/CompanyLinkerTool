@@ -1263,7 +1263,7 @@ submitButton.addEventListener("click", async function () {
         });
 
       // Add comment if employee and comment text are provided
-      if (selectedEmployee && comment) {
+      if (comment) {
         // Format the comment with employee and timestamp
         const formattedComment = formatComment(comment, selectedEmployee);
 
