@@ -1598,6 +1598,8 @@ async function handleAuthClick() {
     tokenClient.requestAccessToken({ prompt: "" });
   }
 }
+document.getElementById("authorize_button").addEventListener("click", handleAuthClick)
+
 
 /**
  * Fetch data from the Google Sheet using the provided URL.
