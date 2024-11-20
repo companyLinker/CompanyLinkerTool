@@ -1598,7 +1598,7 @@ async function handleAuthClick() {
     tokenClient.requestAccessToken({ prompt: "" });
   }
 }
-document.getElementById("authorize_button").addEventListener("click", handleAuthClick)
+document.getElementById("authorize_button").addEventListener("click", handleAuthClick())
 
 
 /**
