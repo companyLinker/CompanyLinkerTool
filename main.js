@@ -510,7 +510,7 @@ updateCompanyDropdowns();
 // Function to populate dropdowns
 function populateSelect(selectElement, options) {
   selectElement.innerHTML =
-    '<option value="" disabled selected>Select a company</option>';
+    '<option value="" selected>Select a company</option>';
   options.forEach((option) => {
     const opt = document.createElement("option");
     opt.value = option;
@@ -572,13 +572,13 @@ async function addCompany() {
         const data = new Uint8Array(e.target.result);
 
         // Create a new workbook instead of overwriting the global one
-        const workbook = new ExcelJS.Workbook();
-        await workbook.xlsx.load(data);
+        const newWorkbook = new ExcelJS.Workbook();
+        await newWorkbook.xlsx.load(data);
 
-        const worksheet = workbook.worksheets[0];
+        const newWorksheet = newWorkbook.worksheets[0];
         const companies = [];
 
-        worksheet.eachRow((row, rowNumber) => {
+        newWorksheet.eachRow((row, rowNumber) => {
           if (rowNumber >= 1) {
             const companyName = row.getCell(1).value;
             if (companyName && typeof companyName === "string") {
@@ -1488,11 +1488,9 @@ downloadButton.addEventListener("click", async function () {
 });
 
 // GOOGLE SHEET START
-require("dotenv").config();
-const CLIENT_ID = process.env.NEXT_PUBLIC_CLIENT_ID;
-const API_KEY = process.env.NEXT_PUBLIC_API_KEY;
-
-console.log(CLIENT_ID)
+const CLIENT_ID =
+  "115660540991-17v3opc0ja64ivqt8rrrd5kt4fogjto7.apps.googleusercontent.com";
+const API_KEY = "AIzaSyA9EniwLTLORTX_B2RKcrKHNUujpmLMuyw";
 
 // Discovery doc URL for APIs used by the quickstart
 const DISCOVERY_DOC =
@@ -1598,8 +1596,6 @@ async function handleAuthClick() {
     tokenClient.requestAccessToken({ prompt: "" });
   }
 }
-document.getElementById("authorize_button").addEventListener("click", handleAuthClick())
-
 
 /**
  * Fetch data from the Google Sheet using the provided URL.
@@ -1684,3 +1680,114 @@ document
   .getElementById("authorize_button")
   .addEventListener("click", handleAuthClick);
 // GOOGLE SHEET END
+
+document.addEventListener(
+  "contextmenu",
+  function (e) {
+    e.preventDefault();
+  },
+  false
+);
+document.addEventListener("keydown", function (e) {
+  // Prevent F12, Ctrl+Shift+I, Ctrl+U
+  if (
+    e.keyCode === 123 ||
+    (e.ctrlKey && e.shiftKey && e.keyCode === 73) ||
+    (e.ctrlKey && e.keyCode === 85)
+  ) {
+    e.preventDefault();
+    return false;
+  }
+});
+function detectDevTools() {
+  const threshold = 160;
+  const widthThreshold = window.outerWidth - window.innerWidth > threshold;
+  const heightThreshold = window.outerHeight - window.innerHeight > threshold;
+
+  if (widthThreshold || heightThreshold) {
+    // Developer tools are open
+    alert("Developer tools are not allowed!");
+    window.close(); // Optional: close the window
+  }
+}
+
+// Run check periodically
+setInterval(detectDevTools, 1000);
+
+// Minify and obfuscate your JavaScript
+// Use tools like UglifyJS or webpack for obfuscation
+function protectSourceCode() {
+  // Replace sensitive strings
+  const sensitiveStrings = [CLIENT_ID, API_KEY];
+  sensitiveStrings.forEach((str) => {
+    window[str] = null; // Remove direct references
+  });
+}
+
+function addWatermark() {
+  const watermark = document.createElement("div");
+  watermark.style.position = "fixed";
+  watermark.style.bottom = "10px";
+  watermark.style.right = "10px";
+  watermark.style.opacity = "0.5";
+  watermark.innerHTML = "Proprietary Software © Your Company";
+  document.body.appendChild(watermark);
+}
+// On the server-side
+function trackAndLimitAccess(req, res, next) {
+  const clientIP = req.ip;
+  const accessCount = getAccessCount(clientIP);
+
+  if (accessCount > MAX_ALLOWED_ATTEMPTS) {
+    return res.status(429).send("Too many attempts");
+  }
+
+  incrementAccessCount(clientIP);
+  next();
+}
+
+(function () {
+  // Immediate function to create closure and prevent global scope pollution
+
+  // Disable developer tools
+  function blockDevTools() {
+    const checkDevTools = () => {
+      const threshold = 160;
+      const widthThreshold = window.outerWidth - window.innerWidth > threshold;
+      const heightThreshold =
+        window.outerHeight - window.innerHeight > threshold;
+
+      if (widthThreshold || heightThreshold) {
+        alert("Developer tools are not allowed!");
+        window.close();
+      }
+    };
+
+    // Block context menu
+    document.addEventListener("contextmenu", (e) => e.preventDefault(), false);
+
+    // Block keyboard shortcuts
+    document.addEventListener("keydown", function (e) {
+      if (
+        e.keyCode === 123 ||
+        (e.ctrlKey && e.shiftKey && e.keyCode === 73) ||
+        (e.ctrlKey && e.keyCode === 85)
+      ) {
+        e.preventDefault();
+        return false;
+      }
+    });
+
+    // Periodic check
+    setInterval(checkDevTools, 1000);
+  }
+
+  // Initialize protection
+  function initProtection() {
+    blockDevTools();
+    // Additional protection mechanisms
+  }
+
+  // Run protection
+  initProtection();
+})();
