@@ -10,7 +10,6 @@ const nonAffiliatedRadio = document.getElementById("nonAffiliatedRadio");
 const employeeFileInput = document.getElementById("employeeFile");
 const employeeSelect = document.getElementById("employeeSelect");
 const commentTextarea = document.getElementById("comment");
-import process from "process";
 
 let workbook,
   worksheet,
