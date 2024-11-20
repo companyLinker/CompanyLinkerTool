@@ -160,13 +160,26 @@ employeeSelect.addEventListener("change", function () {
   }
 });
 
+async function fetchUserEmail() {
+  if (!gapi.client.people) {
+    console.error("People API not loaded or initialized.");
+    return null;
+  }
+
+  const response = await gapi.client.people.people.get({
+    resourceName: "people/me",
+    personFields: "emailAddresses",
+  });
+
+  return response.result.emailAddresses[0].value;
+}
 // Function to format the comment with the selected employee
 function formatComment(comment, selectedEmployee) {
   if (isGoogleSheetData) {
     const currentDate = new Date();
     const formattedDate = currentDate.toLocaleString();
 
-    return `"${comment}" by @${selectedEmployee} on ${formattedDate}`;
+    return `"${comment}" by ${userEmail} on ${formattedDate}`;
   } else {
     const selectedEmployee = employeeSelect.value;
 
@@ -557,6 +570,8 @@ async function addCompany() {
       const reader = new FileReader();
       reader.onload = async (e) => {
         const data = new Uint8Array(e.target.result);
+
+        // Create a new workbook instead of overwriting the global one
         const workbook = new ExcelJS.Workbook();
         await workbook.xlsx.load(data);
 
@@ -564,7 +579,6 @@ async function addCompany() {
         const companies = [];
 
         worksheet.eachRow((row, rowNumber) => {
-          // Skip header row if needed
           if (rowNumber >= 1) {
             const companyName = row.getCell(1).value;
             if (companyName && typeof companyName === "string") {
@@ -799,17 +813,11 @@ async function addCompany() {
               companyList.includes(newCompany) ||
               rowCompanies.includes(newCompany)
             ) {
-              alert("This company already exists.");
-              return;
+              alert(`Company ${newCompany} already exists. Skipping.`);
+              continue; // Skip to the next company if it already exists
             }
 
-            const columnIndex = companyList.length + 1;
-            // Add to column header
-            worksheet.getCell(`${indexToColumnLetter(columnIndex)}1`).value =
-              newCompany;
-            companyList.push(newCompany);
-
-            // Find blank row index
+            // Determine where to add the new company
             let blankRowIndex = rowCompanies.findIndex((company, index) => {
               return (
                 (company === null ||
@@ -820,31 +828,59 @@ async function addCompany() {
             });
 
             if (blankRowIndex === -1) {
+              // If no second blank row, treat the end as the separator
               blankRowIndex = rowCompanies.length;
             }
 
-            // Insert a new row before the blank row
-            worksheet.spliceRows(blankRowIndex + 2, 0, [newCompany]);
-            rowCompanies.splice(blankRowIndex, 0, newCompany);
+            if (affiliatedRadio.checked) {
+              // Affiliated mode: Add to column headers and rows
+              const columnIndex = companyList.length + 1;
+
+              // Add to column header if it doesn't already exist
+              if (!companyList.includes(newCompany)) {
+                worksheet.getCell(
+                  `${indexToColumnLetter(columnIndex)}1`
+                ).value = newCompany;
+                companyList.push(newCompany);
+              }
+
+              // Insert a new row before the blank row without replacing existing data
+              worksheet.spliceRows(blankRowIndex + 2, 0, [newCompany]);
+              rowCompanies.splice(blankRowIndex, 0, newCompany);
+            } else {
+              // Non-affiliated mode: Add after the last entry of the second list
+              let lastNonEmptyRowIndex = rowCompanies.length; // Start with the length of rowCompanies
+
+              // Find the last non-empty row in the second list
+              for (let i = rowCompanies.length - 1; i >= 0; i--) {
+                if (
+                  rowCompanies[i] !== null &&
+                  rowCompanies[i] !== undefined &&
+                  rowCompanies[i].toString().trim() !== ""
+                ) {
+                  lastNonEmptyRowIndex = i + 1; // Set to the next index
+                  break;
+                }
+              }
+
+              // Insert a new row after the last non-empty row
+              worksheet.spliceRows(lastNonEmptyRowIndex + 2, 0, [newCompany]);
+              rowCompanies.splice(lastNonEmptyRowIndex + 1, 0, newCompany);
+            }
           }
         }
-
-        // Update worksheet and UI after processing all companies
-        if (!isGoogleSheetData) {
-          worksheet.rowCount = Math.max(
-            worksheet.rowCount,
-            rowCompanies.length + 1
-          );
-          companyList = worksheet.getRow(1).values.slice(1);
-          rowCompanies = [];
-          for (let i = 2; i <= worksheet.rowCount; i++) {
-            rowCompanies.push(worksheet.getRow(i).getCell(1).value);
-          }
+        worksheet.rowCount = Math.max(
+          worksheet.rowCount,
+          rowCompanies.length + 1
+        );
+        console.log(worksheet.rowCount, ":::worksheet.rowCount");
+        companyList = worksheet.getRow(1).values.slice(1);
+        rowCompanies = [];
+        for (let i = 2; i <= worksheet.rowCount; i++) {
+          rowCompanies.push(worksheet.getRow(i).getCell(1).value);
         }
-
         updateCompanyDropdowns();
         fillDiagonalCells();
-
         // Clear file input
         companyListFileInput.value = "";
       };
@@ -1452,21 +1488,25 @@ downloadButton.addEventListener("click", async function () {
 });
 
 // GOOGLE SHEET START
-const CLIENT_ID =
-  '115660540991-17v3opc0ja64ivqt8rrrd5kt4fogjto7.apps.googleusercontent.com';
-const API_KEY = 'AIzaSyA9EniwLTLORTX_B2RKcrKHNUujpmLMuyw';
+const CLIENT_ID = process.env.NEXT_PUBLIC_CLIENT_ID;
+const API_KEY = process.env.NEXT_PUBLIC_API_KEY;
 
 // Discovery doc URL for APIs used by the quickstart
 const DISCOVERY_DOC =
   "https://sheets.googleapis.com/$discovery/rest?version=v4";
 
+const DISCOVERY_DOC_PEOPLE =
+  "https://people.googleapis.com/$discovery/rest?version=v1";
+
 // Authorization scopes required by the API; multiple scopes can be
 // included, separated by spaces.
-const SCOPES = "https://www.googleapis.com/auth/spreadsheets";
+const SCOPES =
+  "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email";
 
-let tokenClient;
 let gapiInited = false;
 let gisInited = false;
+let tokenClient;
+let userEmail = "";
 
 document.getElementById("authorize_button").style.visibility = "hidden";
 // document.getElementById("signout_button").style.visibility = "hidden";
@@ -1475,21 +1515,22 @@ document.getElementById("authorize_button").style.visibility = "hidden";
  * Callback after api.js is loaded.
  */
 function gapiLoaded() {
-  gapi.load("client", initializeGapiClient);
+  gapi.load("client", initGoogleAPIs); // This function is called when gapi is loaded
+}
+
+async function initGoogleAPIs() {
+  await gapi.client.init({
+    apiKey: API_KEY,
+    discoveryDocs: [DISCOVERY_DOC, DISCOVERY_DOC_PEOPLE],
+  });
+  gapiInited = true;
+  maybeEnableButtons();
 }
 
 /**
  * Callback after the API client is loaded. Loads the
  * discovery doc to initialize the API.
  */
-async function initializeGapiClient() {
-  await gapi.client.init({
-    apiKey: API_KEY,
-    discoveryDocs: [DISCOVERY_DOC],
-  });
-  gapiInited = true;
-  maybeEnableButtons();
-}
 
 /**
  * Callback after Google Identity Services are loaded.
@@ -1498,7 +1539,7 @@ function gisLoaded() {
   tokenClient = google.accounts.oauth2.initTokenClient({
     client_id: CLIENT_ID,
     scope: SCOPES,
-    callback: "", // defined later
+    callback: "",
   });
   gisInited = true;
   maybeEnableButtons();
@@ -1506,7 +1547,6 @@ function gisLoaded() {
 
 document.addEventListener("DOMContentLoaded", function () {
   gapiLoaded();
-  initializeGapiClient();
   gisLoaded();
 });
 
@@ -1522,7 +1562,8 @@ function maybeEnableButtons() {
 /**
  *  Sign in the user upon button click.
  */
-function handleAuthClick() {
+
+async function handleAuthClick() {
   isGoogleSheetData = true;
 
   tokenClient.callback = async (resp) => {
@@ -1530,9 +1571,20 @@ function handleAuthClick() {
       throw resp;
     }
     document.getElementById("authorize_button").innerText = "Refresh";
-
     // Fetch data after successful authentication
     await fetchDataFromSheet();
+    // Wait for People API to be ready
+    await new Promise((resolve) => {
+      const interval = setInterval(() => {
+        if (gapi.client.people) {
+          clearInterval(interval);
+          resolve();
+        }
+      }, 100); // Check every 100ms
+    });
+
+    // Fetch user's email after successful authentication
+    userEmail = await fetchUserEmail();
   };
 
   if (gapi.client.getToken() === null) {
@@ -1580,6 +1632,8 @@ async function fetchDataFromSheet() {
       spreadsheetId: spreadsheetId,
       range: sheetName, // Use the dynamic sheet name
     });
+
+    console.log(response);
 
     const range = response.result;
     if (!range || !range.values || range.values.length === 0) {
