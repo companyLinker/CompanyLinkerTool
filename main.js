@@ -1488,8 +1488,8 @@ downloadButton.addEventListener("click", async function () {
 });
 
 // GOOGLE SHEET START
-const CLIENT_ID = process.env.NEXT_PUBLIC_CLIENT_ID;
-const API_KEY = process.env.NEXT_PUBLIC_API_KEY;
+const CLIENT_ID = process.env.CLIENT_ID;
+const API_KEY = process.env.API_KEY;
 
 console.log(CLIENT_ID)
 
