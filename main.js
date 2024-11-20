@@ -1491,6 +1491,8 @@ downloadButton.addEventListener("click", async function () {
 const CLIENT_ID = process.env.NEXT_PUBLIC_CLIENT_ID;
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY;
 
+console.log(CLIENT_ID)
+
 // Discovery doc URL for APIs used by the quickstart
 const DISCOVERY_DOC =
   "https://sheets.googleapis.com/$discovery/rest?version=v4";
