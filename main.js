@@ -461,10 +461,543 @@ excelFileInput.addEventListener("change", async function (event) {
 
     // Update the dropdowns based on the affiliation type
     updateCompanyDropdowns();
+
+    // Call the function to find and highlight nullifiable transactions
+    // await findNullifiableTransactions();
   };
 
   reader.readAsArrayBuffer(file);
 });
+
+let nullifiablePairs = [];
+let headers = [];
+let sheets = [];
+
+// Function to find and highlight nullifiable transactions
+async function findNullifiableTransactions() {
+  let transactionMap;
+  let localHeaders;
+
+  function parseAmount(amount) {
+    if (amount === null || amount === undefined || amount === "") {
+      return null;
+    }
+
+    if (typeof amount === "number" && !isNaN(amount)) {
+      return amount;
+    }
+
+    if (typeof amount === "string") {
+      amount = amount.trim();
+
+      // Check if the amount is in parentheses
+      if (amount.startsWith("(") && amount.endsWith(")")) {
+        // Remove parentheses and parse as negative
+        amount = "-" + amount.slice(1, -1).replace(/[$,]/g, "");
+      } else {
+        amount = amount.replace(/[$,]/g, ""); // Remove currency symbols
+      }
+
+      const parsedNum = parseFloat(amount);
+      return !isNaN(parsedNum) ? parsedNum : null;
+    }
+
+    return null;
+  }
+
+  function findNullifiablePairs(transactionMap) {
+    const nullifiablePairsLocal = [];
+    const nonNullifiablePairs = [];
+
+    // Iterate through all companies
+    for (const [companyA, transactionsA] of transactionMap.entries()) {
+      for (const [companyB, amountAtoB] of Object.entries(transactionsA)) {
+        // Skip if amount is null or zero
+        if (amountAtoB === null || amountAtoB === 0) continue;
+
+        // Check if reverse transaction exists
+        if (
+          transactionMap.has(companyB) &&
+          transactionMap.get(companyB)[companyA] !== undefined
+        ) {
+          const amountBtoA = transactionMap.get(companyB)[companyA];
+
+          // Check if amounts are equal in magnitude but opposite in sign
+          if (
+            amountBtoA !== null &&
+            Math.abs(amountAtoB) === Math.abs(amountBtoA) &&
+            Math.sign(amountAtoB) !== Math.sign(amountBtoA)
+          ) {
+            nullifiablePairsLocal.push({
+              companyA,
+              companyB,
+              amountAtoB,
+              amountBtoA,
+            });
+          } else {
+            // If not nullifiable, add to non-nullifiable pairs
+            nonNullifiablePairs.push({
+              companyA,
+              companyB,
+              amountAtoB,
+              amountBtoA,
+            });
+          }
+        }
+      }
+    }
+
+    return {
+      nullifiablePairs: nullifiablePairsLocal,
+      nonNullifiablePairs,
+    };
+  }
+
+  function extractTransactions(values, headers) {
+    const transactionMap = new Map();
+
+    for (let rowIndex = 1; rowIndex < values.length; rowIndex++) {
+      const fromCompany = values[rowIndex][0];
+
+      for (let colIndex = 1; colIndex < values[rowIndex].length; colIndex++) {
+        const toCompany = headers[colIndex - 1];
+        const amount = parseAmount(values[rowIndex][colIndex]);
+
+        // Skip null, undefined, or zero amounts and self-transactions
+        if (amount === null || amount === 0 || fromCompany === toCompany)
+          continue;
+
+        if (!transactionMap.has(fromCompany)) {
+          transactionMap.set(fromCompany, {});
+        }
+        transactionMap.get(fromCompany)[toCompany] = amount;
+      }
+    }
+
+    return transactionMap;
+  }
+
+  // Google Sheets processing
+  if (isGoogleSheetData) {
+    const sheetUrl = document.getElementById("googleSheetUrl").value;
+    const sheetIdMatch = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
+
+    if (!sheetIdMatch) {
+      console.error("Invalid Google Sheet URL");
+      return;
+    }
+
+    const spreadsheetId = sheetIdMatch[1];
+
+    try {
+      const spreadsheetResponse = await gapi.client.sheets.spreadsheets.get({
+        spreadsheetId: spreadsheetId,
+      });
+
+      sheets = spreadsheetResponse.result.sheets;
+      if (!sheets || sheets.length === 0) {
+        console.error("No sheets found in the spreadsheet.");
+        return;
+      }
+
+      const sheetName = sheets[0].properties.title;
+      const response = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: spreadsheetId,
+        range: sheetName,
+      });
+
+      const range = response.result;
+      if (!range || !range.values || range.values.length === 0) {
+        console.error("No values found.");
+        return;
+      }
+
+      const values = range.values;
+      headers = values[0].slice(1);
+      transactionMap = extractTransactions(values, headers);
+    } catch (error) {
+      console.error("Error fetching Google Sheet data:", error);
+      return;
+    }
+  }
+  // ExcelJS processing
+  else {
+    const values = [];
+    headers = worksheet.getRow(1).values.slice(1);
+
+    // Convert ExcelJS worksheet to 2D array
+    for (let rowIndex = 2; rowIndex <= worksheet.rowCount; rowIndex++) {
+      const row = worksheet.getRow(rowIndex);
+      const rowValues = row.values.slice(1);
+      values.push([row.getCell(1).value, ...rowValues]);
+    }
+
+    transactionMap = extractTransactions(values, headers);
+  }
+
+  // Find nullifiable and non-nullifiable pairs
+  const { nullifiablePairs: localNullifiablePairs, nonNullifiablePairs } =
+    findNullifiablePairs(transactionMap);
+
+  // Assign to global variable
+  nullifiablePairs = localNullifiablePairs;
+
+  // Detailed logging
+  console.log("Nullifiable Pairs:", nullifiablePairs);
+  console.log("Non-Nullifiable Pairs:", nonNullifiablePairs);
+
+  // Highlighting logic for nullifiable and non-nullifiable pairs
+  if (isGoogleSheetData) {
+    const sheetUrl = document.getElementById("googleSheetUrl").value;
+    const sheetIdMatch = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    const spreadsheetId = sheetIdMatch[1];
+
+    try {
+      const spreadsheetResponse = await gapi.client.sheets.spreadsheets.get({
+        spreadsheetId: spreadsheetId,
+      });
+
+      const sheets = spreadsheetResponse.result.sheets;
+      const sheetId = sheets[0].properties.sheetId;
+
+      // Prepare batch update requests for nullifiable pairs
+      const nullifiableRequests = nullifiablePairs
+        .flatMap(({ companyA, companyB }) => [
+          {
+            repeatCell: {
+              range: {
+                sheetId: sheetId,
+                startRowIndex: headers.findIndex((c) => c === companyA) + 1,
+                endRowIndex: headers.findIndex((c) => c === companyA) + 2,
+                startColumnIndex: headers.findIndex((c) => c === companyB) + 1,
+                endColumnIndex: headers.findIndex((c) => c === companyB) + 2,
+              },
+              cell: {
+                userEnteredFormat: {
+                  backgroundColor: {
+                    red: 1,
+                    green: 1,
+                    blue: 0,
+                    alpha: 0.5, // Yellow color for nullifiable pairs
+                  },
+                },
+              },
+              fields: "userEnteredFormat(backgroundColor)",
+            },
+          },
+          {
+            repeatCell: {
+              range: {
+                sheetId: sheetId,
+                startRowIndex: headers.findIndex((c) => c === companyB) + 1,
+                endRowIndex: headers.findIndex((c) => c === companyB) + 2,
+                startColumnIndex: headers.findIndex((c) => c === companyA) + 1,
+                endColumnIndex: headers.findIndex((c) => c === companyA) + 2,
+              },
+              cell: {
+                userEnteredFormat: {
+                  backgroundColor: {
+                    red: 1,
+                    green: 1,
+                    blue: 0,
+                    alpha: 0.5, // Yellow color for nullifiable pairs
+                  },
+                },
+              },
+              fields: "userEnteredFormat(backgroundColor)",
+            },
+          },
+        ])
+        .filter(Boolean);
+
+      // Prepare batch update requests for non-nullifiable pairs
+      const nonNullifiableRequests = nonNullifiablePairs
+        .flatMap(({ companyA, companyB }) => [
+          {
+            repeatCell: {
+              range: {
+                sheetId: sheetId,
+                startRowIndex: headers.findIndex((c) => c === companyA) + 1,
+                endRowIndex: headers.findIndex((c) => c === companyA) + 2,
+                startColumnIndex: headers.findIndex((c) => c === companyB) + 1,
+                endColumnIndex: headers.findIndex((c) => c === companyB) + 2,
+              },
+              cell: {
+                userEnteredFormat: {
+                  backgroundColor: {
+                    red: 1,
+                    green: 1,
+                    blue: 1, // White color for non-nullifiable pairs
+                    alpha: 1,
+                  },
+                },
+              },
+              fields: "userEnteredFormat(backgroundColor)",
+            },
+          },
+          {
+            repeatCell: {
+              range: {
+                sheetId: sheetId,
+                startRowIndex: headers.findIndex((c) => c === companyB) + 1,
+                endRowIndex: headers.findIndex((c) => c === companyB) + 2,
+                startColumnIndex: headers.findIndex((c) => c === companyA) + 1,
+                endColumnIndex: headers.findIndex((c) => c === companyA) + 2,
+              },
+              cell: {
+                userEnteredFormat: {
+                  backgroundColor: {
+                    red: 1,
+                    green: 1,
+                    blue: 1, // White color for non-nullifiable pairs
+                    alpha: 1,
+                  },
+                },
+              },
+              fields: "userEnteredFormat(backgroundColor)",
+            },
+          },
+        ])
+        .filter(Boolean);
+
+      // Execute batch update for nullifiable pairs
+      if (nullifiableRequests.length > 0) {
+        await gapi.client.sheets.spreadsheets.batchUpdate({
+          spreadsheetId: spreadsheetId,
+          resource: { requests: nullifiableRequests },
+        });
+      }
+
+      // Execute batch update for non-nullifiable pairs
+      if (nonNullifiableRequests.length > 0) {
+        await gapi.client.sheets.spreadsheets.batchUpdate({
+          spreadsheetId: spreadsheetId,
+          resource: { requests: nonNullifiableRequests },
+        });
+      }
+    } catch (error) {
+      console.error("Error highlighting transactions:", error);
+    }
+  } else {
+    // Apply coloring for nullifiable pairs
+    for (let rowIndex = 2; rowIndex <= worksheet.rowCount; rowIndex++) {
+      const row = worksheet.getRow(rowIndex);
+      for (let colIndex = 2; colIndex <= worksheet.columnCount; colIndex++) {
+        const amountCell = row.getCell(colIndex);
+        // Reset cell color to white
+        amountCell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FFFFFFFF" }, // White background
+        };
+      }
+    }
+
+    // Apply coloring for nullifiable pairs
+    nullifiablePairs.forEach(({ companyA, companyB }) => {
+      for (let rowIndex = 2; rowIndex <= worksheet.rowCount; rowIndex++) {
+        const row = worksheet.getRow(rowIndex);
+        const fromCompany = row.getCell(1).value; // Get the row company
+
+        for (let colIndex = 2; colIndex <= worksheet.columnCount; colIndex++) {
+          const toCompany = worksheet.getRow(1).getCell(colIndex).value; // Get the column company
+          const amountCell = row.getCell(colIndex);
+          const amountValue = amountCell.value;
+
+          // Precise matching for nullifiable pairs
+          if (
+            (fromCompany === companyA && toCompany === companyB) ||
+            (fromCompany === companyB && toCompany === companyA)
+          ) {
+            // Ensure the amount is valid and matches the nullifiable pair
+            if (
+              amountValue !== null &&
+              amountValue !== undefined &&
+              amountValue !== "" &&
+              !isNaN(parseFloat(amountValue)) // Check if it's a valid number
+            ) {
+              amountCell.fill = {
+                type: "pattern",
+                pattern: "solid",
+                fgColor: { argb: "FFFFFF00" }, // Yellow color for nullifiable pairs
+              };
+            }
+          }
+        }
+      }
+    });
+
+    // Optional: Apply coloring for non-nullifiable pairs
+    nonNullifiablePairs.forEach(({ companyA, companyB }) => {
+      for (let rowIndex = 2; rowIndex <= worksheet.rowCount; rowIndex++) {
+        const row = worksheet.getRow(rowIndex);
+        const fromCompany = row.getCell(1).value; // Get the row company
+
+        for (let colIndex = 2; colIndex <= worksheet.columnCount; colIndex++) {
+          const toCompany = worksheet.getRow(1).getCell(colIndex).value; // Get the column company
+          const amountCell = row.getCell(colIndex);
+          const amountValue = amountCell.value;
+
+          // Precise matching for non-nullifiable pairs
+          if (
+            (fromCompany === companyA && toCompany === companyB) ||
+            (fromCompany === companyB && toCompany === companyA)
+          ) {
+            // Ensure the amount is valid
+            if (
+              amountValue !== null &&
+              amountValue !== undefined &&
+              amountValue !== "" &&
+              !isNaN(parseFloat(amountValue)) // Check if it's a valid number
+            ) {
+              amountCell.fill = {
+                type: "pattern",
+                pattern: "solid",
+                fgColor: { argb: "FFFFFFFF" }, // White color for non-nullifiable pairs
+              };
+            }
+          }
+        }
+      }
+    });
+  }
+}
+
+// Call this function after populating the data
+findNullifiableTransactions();
+
+const NULLIFY_PASSWORD = "123";
+
+// Event listener for nullify button
+document.getElementById("nullifyBtn").addEventListener("click", function () {
+  // Prompt for password
+  const enteredPassword = prompt("Enter the password to nullify amounts:");
+
+  // Check if password matches
+  if (enteredPassword === NULLIFY_PASSWORD) {
+    // Call the function to nullify amounts
+    nullifyAmounts();
+  } else {
+    // Show error for incorrect password
+    alert("Incorrect password. Nullification cancelled.");
+  }
+});
+
+function nullifyAmounts() {
+  // Google Sheets nullification
+  if (isGoogleSheetData) {
+    nullifyGoogleSheetAmounts();
+  }
+  // Excel nullification
+  else {
+    nullifyExcelAmounts();
+  }
+}
+
+function nullifyGoogleSheetAmounts() {
+  // Get the spreadsheet URL
+  const sheetUrl = document.getElementById("googleSheetUrl").value;
+  const sheetIdMatch = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
+
+  if (!sheetIdMatch) {
+    console.error("Invalid Google Sheet URL");
+    return;
+  }
+
+  const spreadsheetId = sheetIdMatch[1];
+
+  // Use the nullifiablePairs from previous processing
+  if (!nullifiablePairs || nullifiablePairs.length === 0) {
+    alert("No nullifiable amounts found.");
+    return;
+  }
+
+  // Prepare batch update requests to set nullifiable amounts to zero
+  const nullifyRequests = nullifiablePairs.flatMap(({ companyA, companyB }) => [
+    {
+      updateCells: {
+        range: {
+          sheetId: sheets[0].properties.sheetId,
+          startRowIndex: headers.findIndex((c) => c === companyA) + 1,
+          endRowIndex: headers.findIndex((c) => c === companyA) + 2,
+          startColumnIndex: headers.findIndex((c) => c === companyB) + 1,
+          endColumnIndex: headers.findIndex((c) => c === companyB) + 2,
+        },
+        rows: [{ values: [{ userEnteredValue: { numberValue: 0 } }] }],
+        fields: "userEnteredValue",
+      },
+    },
+    {
+      updateCells: {
+        range: {
+          sheetId: sheets[0].properties.sheetId,
+          startRowIndex: headers.findIndex((c) => c === companyB) + 1,
+          endRowIndex: headers.findIndex((c) => c === companyB) + 2,
+          startColumnIndex: headers.findIndex((c) => c === companyA) + 1,
+          endColumnIndex: headers.findIndex((c) => c === companyA) + 2,
+        },
+        rows: [{ values: [{ userEnteredValue: { numberValue: 0 } }] }],
+        fields: "userEnteredValue",
+      },
+    },
+  ]);
+
+  // Execute batch update to set nullifiable amounts to zero
+  gapi.client.sheets.spreadsheets
+    .batchUpdate({
+      spreadsheetId: spreadsheetId,
+      resource: { requests: nullifyRequests },
+    })
+    .then((response) => {
+      alert("Amounts nullified successfully!");
+      // Optionally refresh the sheet or trigger a reload
+    })
+    .catch((error) => {
+      console.error("Error nullifying amounts:", error);
+      alert("Failed to nullify amounts.");
+    });
+}
+
+function nullifyExcelAmounts() {
+  // Ensure we have nullifiable pairs from previous processing
+  if (!nullifiablePairs || nullifiablePairs.length === 0) {
+    alert("No nullifiable amounts found.");
+    return;
+  }
+
+  // Apply nullification to Excel worksheet
+  nullifiablePairs.forEach(({ companyA, companyB }) => {
+    for (let rowIndex = 2; rowIndex <= worksheet.rowCount; rowIndex++) {
+      const row = worksheet.getRow(rowIndex);
+      const fromCompany = row.getCell(1).value;
+
+      for (let colIndex = 2; colIndex <= worksheet.columnCount; colIndex++) {
+        const toCompany = worksheet.getRow(1).getCell(colIndex).value;
+        const amountCell = row.getCell(colIndex);
+
+        // Check if the cell matches nullifiable pair
+        if (
+          (fromCompany === companyA && toCompany === companyB) ||
+          (fromCompany === companyB && toCompany === companyA)
+        ) {
+          // Set the cell value to 0
+          amountCell.value = 0;
+        }
+      }
+    }
+  });
+
+  // Save the modified workbook
+  workbook.xlsx
+    .writeFile("nullified_worksheet.xlsx")
+    .then(() => {
+      alert("Amounts nullified successfully!");
+    })
+    .catch((error) => {
+      console.error("Error saving nullified worksheet:", error);
+      alert("Failed to nullify amounts.");
+    });
+}
 
 // Function to update dropdown options based on affiliation type
 function updateCompanyDropdowns() {
@@ -1432,6 +1965,7 @@ submitButton.addEventListener("click", async function () {
     updateDataTable(columnCompany, rowCompany, amount);
   }
 
+  await findNullifiableTransactions();
   // Clear inputs after submission
   document.getElementById("amount").value = "";
   commentTextarea.value = ""; // Clear the comment textarea
@@ -1669,6 +2203,8 @@ async function fetchDataFromSheet() {
 
     // Update dropdowns based on the affiliation type
     updateCompanyDropdowns();
+
+    await findNullifiableTransactions();
   } catch (err) {
     document.getElementById("content").innerText = err.message;
     console.error("Error fetching data:", err);
