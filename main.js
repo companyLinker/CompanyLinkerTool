@@ -2384,6 +2384,8 @@ function maybeEnableButtons() {
 
 async function handleAuthClick() {
   isGoogleSheetData = true;
+  excelFile.setAttribute("disabled", true);
+  employeeFile.setAttribute("disabled", true);
 
   tokenClient.callback = async (resp) => {
     if (resp.error !== undefined) {
