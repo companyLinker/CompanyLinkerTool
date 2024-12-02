@@ -456,14 +456,14 @@ excelFileInput.addEventListener("change", async function (event) {
     colSelect.update();
     rowSelect.update();
 
-    // Fill diagonal cells for matching companies
-    fillDiagonalCells();
-
     // Update the dropdowns based on the affiliation type
     updateCompanyDropdowns();
 
+    // Fill diagonal cells for matching companies
+    await fillDiagonalCells();
+
     // Call the function to find and highlight nullifiable transactions
-    // await findNullifiableTransactions();
+    await findNullifiableTransactionsExcel(worksheet);
   };
 
   reader.readAsArrayBuffer(file);
@@ -472,6 +472,367 @@ excelFileInput.addEventListener("change", async function (event) {
 let nullifiablePairs = [];
 let headers = [];
 let sheets = [];
+let globalNullifiablePairs = [];
+
+async function findNullifiableTransactionsExcel(worksheet) {
+  // Function to parse amount similar to Google Sheets version
+  function parseAmount(amount) {
+    if (amount === null || amount === undefined || amount === "") {
+      return null;
+    }
+
+    if (typeof amount === "number" && !isNaN(amount)) {
+      return amount;
+    }
+
+    if (typeof amount === "string") {
+      amount = amount.trim();
+
+      // Check if the amount is in parentheses
+      if (amount.startsWith("(") && amount.endsWith(")")) {
+        // Remove parentheses and parse as negative
+        amount = "-" + amount.slice(1, -1).replace(/[$,]/g, "");
+      } else {
+        amount = amount.replace(/[$,]/g, ""); // Remove currency symbols
+      }
+
+      const parsedNum = parseFloat(amount);
+      return !isNaN(parsedNum) ? parsedNum : null;
+    }
+
+    return null;
+  }
+
+  // Function to extract transactions from Excel worksheet
+  function extractTransactions(worksheet) {
+    const transactionMap = new Map();
+    const headerRow = worksheet.getRow(1);
+    const headerCompanies = headerRow.values.slice(1); // Skip first empty cell
+
+    // Iterate through rows starting from row 2
+    for (let rowIndex = 2; rowIndex <= worksheet.rowCount; rowIndex++) {
+      const row = worksheet.getRow(rowIndex);
+      const fromCompany = row.getCell(1).value;
+
+      // Iterate through columns starting from column 2
+      for (
+        let colIndex = 2;
+        colIndex <= headerCompanies.length + 1;
+        colIndex++
+      ) {
+        const toCompany = headerRow.getCell(colIndex).value;
+        const amountCell = row.getCell(colIndex);
+
+        // Extract raw value before parsing
+        let rawValue = amountCell.value;
+
+        // Try multiple methods to get the value
+        if (amountCell.text) {
+          rawValue = amountCell.text;
+        } else if (amountCell.result) {
+          rawValue = amountCell.result;
+        }
+
+        const amount = parseAmount(rawValue);
+
+        // Skip null, undefined, or zero amounts and self-transactions
+        if (amount === null || amount === 0 || fromCompany === toCompany)
+          continue;
+
+        if (!transactionMap.has(fromCompany)) {
+          transactionMap.set(fromCompany, {});
+        }
+        transactionMap.get(fromCompany)[toCompany] = amount;
+      }
+    }
+
+    return transactionMap;
+  }
+
+  // Function to find nullifiable pairs
+  function findNullifiablePairs(transactionMap) {
+    const nullifiablePairsLocal = [];
+    const nonNullifiablePairs = [];
+    const processedPairs = new Set(); // To avoid duplicate processing
+
+    // Iterate through all companies
+    for (const [companyA, transactionsA] of transactionMap.entries()) {
+      for (const [companyB, amountAtoB] of Object.entries(transactionsA)) {
+        // Skip if amount is null or zero
+        if (amountAtoB === null || amountAtoB === 0) continue;
+
+        // Create a unique key for the pair to avoid duplicate processing
+        const pairKey = `${companyA}-${companyB}`;
+        const reversePairKey = `${companyB}-${companyA}`;
+
+        // Skip if this pair has been processed
+        if (processedPairs.has(pairKey) || processedPairs.has(reversePairKey))
+          continue;
+
+        // Check if reverse transaction exists
+        if (
+          transactionMap.has(companyB) &&
+          transactionMap.get(companyB)[companyA] !== undefined
+        ) {
+          const amountBtoA = transactionMap.get(companyB)[companyA];
+
+          // Mark these pairs as processed to avoid duplicate checking
+          processedPairs.add(pairKey);
+          processedPairs.add(reversePairKey);
+
+          // Check if amounts are equal in magnitude but opposite in sign
+          if (
+            amountBtoA !== null &&
+            Math.abs(amountAtoB) === Math.abs(amountBtoA) &&
+            Math.sign(amountAtoB) !== Math.sign(amountBtoA)
+          ) {
+            nullifiablePairsLocal.push({
+              companyA,
+              companyB,
+              amountAtoB,
+              amountBtoA,
+            });
+          } else {
+            // If not nullifiable, add to non-nullifiable pairs
+            nonNullifiablePairs.push({
+              companyA,
+              companyB,
+              amountAtoB,
+              amountBtoA,
+            });
+          }
+        } else {
+          // No reverse transaction found, add to non-nullifiable pairs
+          nonNullifiablePairs.push({
+            companyA,
+            companyB,
+            amountAtoB,
+            amountBtoA: null,
+          });
+        }
+      }
+    }
+    // Add this section at the end of the highlighting logic, before the console.log statements
+    // Color diagonal cells red
+    companyList.forEach((company, index) => {
+      const cell = worksheet.getCell(
+        `${indexToColumnLetter(index + 1)}${index + 1}`
+      );
+
+      // Preserve original border style
+      const originalBorder = cell.border || {
+        top: { style: "thin", color: { argb: "FF000000" } },
+        left: { style: "thin", color: { argb: "FF000000" } },
+        bottom: { style: "thin", color: { argb: "FF000000" } },
+        right: { style: "thin", color: { argb: "FF000000" } },
+      };
+
+      // Apply red fill while preserving original border
+      cell.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFFF0000" }, // Red color
+      };
+
+      // Explicitly set style with original border
+      cell.border = originalBorder;
+      cell.style = {
+        ...cell.style,
+        fill: {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FFFF0000" },
+        },
+        border: originalBorder,
+      };
+    });
+
+    globalNullifiablePairs = nullifiablePairsLocal;
+
+    return {
+      nullifiablePairs: nullifiablePairsLocal,
+      nonNullifiablePairs,
+    };
+  }
+
+  // Extract transactions from the worksheet
+  const transactionMap = extractTransactions(worksheet);
+
+  // Find nullifiable and non-nullifiable pairs
+  const { nullifiablePairs, nonNullifiablePairs } =
+    findNullifiablePairs(transactionMap);
+
+  // Highlight nullifiable and non-nullifiable pairs
+  const headerRow = worksheet.getRow(1);
+  const headerCompanies = headerRow.values.slice(1);
+
+  // Function to get the original border style of a cell
+  function getCellBorderStyle(cell) {
+    const originalBorder = cell.border || {};
+
+    // Default border if no border exists
+    const defaultBorder = {
+      top: { style: "thin", color: { argb: "FF000000" } },
+      left: { style: "thin", color: { argb: "FF000000" } },
+      bottom: { style: "thin", color: { argb: "FF000000" } },
+      right: { style: "thin", color: { argb: "FF000000" } },
+    };
+
+    return {
+      top: originalBorder.top || defaultBorder.top,
+      left: originalBorder.left || defaultBorder.left,
+      bottom: originalBorder.bottom || defaultBorder.bottom,
+      right: originalBorder.right || defaultBorder.right,
+    };
+  }
+
+  // Highlight nullifiable pairs in yellow
+  nullifiablePairs.forEach(({ companyA, companyB }) => {
+    const rowIndexA = headerCompanies.indexOf(companyA) + 1;
+    const colIndexA = headerCompanies.indexOf(companyB) + 1;
+    const rowIndexB = headerCompanies.indexOf(companyB) + 1;
+    const colIndexB = headerCompanies.indexOf(companyA) + 1;
+
+    // Color A to B cell
+    const cellAtoB = worksheet.getCell(
+      `${indexToColumnLetter(colIndexA)}${rowIndexA}`
+    );
+
+    // Preserve original border style
+    const originalBorderAtoB = getCellBorderStyle(cellAtoB);
+
+    // Reset and apply fill
+    cellAtoB.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFFFFF00" }, // Yellow
+    };
+
+    // Explicitly set style with original border
+    cellAtoB.border = originalBorderAtoB;
+    cellAtoB.style = {
+      ...cellAtoB.style,
+      fill: {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFFFFF00" },
+      },
+      border: originalBorderAtoB,
+    };
+
+    // Color B to A cell
+    const cellBtoA = worksheet.getCell(
+      `${indexToColumnLetter(colIndexB)}${rowIndexB}`
+    );
+
+    // Preserve original border style
+    const originalBorderBtoA = getCellBorderStyle(cellBtoA);
+
+    // Reset and apply fill
+    cellBtoA.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFFFFF00" }, // Yellow
+    };
+
+    // Explicitly set style with original border
+    cellBtoA.border = originalBorderBtoA;
+    cellBtoA.style = {
+      ...cellBtoA.style,
+      fill: {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFFFFF00" },
+      },
+      border: originalBorderBtoA,
+    };
+  });
+
+  // Highlight non-nullifiable pairs with a light color
+  nonNullifiablePairs.forEach(({ companyA, companyB }) => {
+    const rowIndexA = headerCompanies.indexOf(companyA) + 1;
+    const colIndexA = headerCompanies.indexOf(companyB) + 1;
+
+    // Color the cell with a light gray background
+    const cellAtoB = worksheet.getCell(
+      `${indexToColumnLetter(colIndexA)}${rowIndexA}`
+    );
+
+    // Check if the cell is blank or contains only spaces
+    if (
+      cellAtoB.value === null ||
+      (typeof cellAtoB.value === "string" && cellAtoB.value.trim() === "")
+    ) {
+      return; // Skip blank cells
+    }
+
+    // Preserve original border style
+    const originalBorderAtoB = getCellBorderStyle(cellAtoB);
+
+    // Reset and apply fill
+    cellAtoB.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFFFFF" }, // Very light gray
+    };
+
+    // Explicitly set style with original border
+    cellAtoB.border = originalBorderAtoB;
+    cellAtoB.style = {
+      ...cellAtoB.style,
+      fill: {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFFFFF" },
+      },
+      border: originalBorderAtoB,
+    };
+
+    // If there's a reverse transaction, color that cell too
+    const rowIndexB = headerCompanies.indexOf(companyB) + 1;
+    const colIndexB = headerCompanies.indexOf(companyA) + 1;
+    const cellBtoA = worksheet.getCell(
+      `${indexToColumnLetter(colIndexB)}${rowIndexB}`
+    );
+
+    // Check if the cell is blank or contains only spaces
+    if (
+      cellBtoA.value === null ||
+      (typeof cellBtoA.value === "string" && cellBtoA.value.trim() === "")
+    ) {
+      return; // Skip blank cells
+    }
+
+    // Preserve original border style
+    const originalBorderBtoA = getCellBorderStyle(cellBtoA);
+
+    // Reset and apply fill
+    cellBtoA.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFFFFF" }, // Very light gray
+    };
+
+    // Explicitly set style with original border
+    cellBtoA.border = originalBorderBtoA;
+    cellBtoA.style = {
+      ...cellBtoA.style,
+      fill: {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFFFFF" },
+      },
+      border: originalBorderBtoA,
+    };
+  });
+
+  // Optional: Log the results
+  console.log("Nullifiable Pairs:", nullifiablePairs);
+  console.log("Non-Nullifiable Pairs:", nonNullifiablePairs);
+
+  // Return the pairs if needed
+  return { nullifiablePairs, nonNullifiablePairs };
+}
 
 // Function to find and highlight nullifiable transactions
 async function findNullifiableTransactions() {
@@ -508,12 +869,19 @@ async function findNullifiableTransactions() {
   function findNullifiablePairs(transactionMap) {
     const nullifiablePairsLocal = [];
     const nonNullifiablePairs = [];
+    const processedPairs = new Set(); // To avoid duplicate processing
 
     // Iterate through all companies
     for (const [companyA, transactionsA] of transactionMap.entries()) {
       for (const [companyB, amountAtoB] of Object.entries(transactionsA)) {
-        // Skip if amount is null or zero
-        if (amountAtoB === null || amountAtoB === 0) continue;
+        // Create unique pair keys
+        const pairKey = `${companyA}-${companyB}`;
+        const reversePairKey = `${companyB}-${companyA}`;
+
+        // Skip if this pair has been processed
+        if (processedPairs.has(pairKey) || processedPairs.has(reversePairKey)) {
+          continue;
+        }
 
         // Check if reverse transaction exists
         if (
@@ -522,9 +890,28 @@ async function findNullifiableTransactions() {
         ) {
           const amountBtoA = transactionMap.get(companyB)[companyA];
 
+          // Mark these pairs as processed
+          processedPairs.add(pairKey);
+          processedPairs.add(reversePairKey);
+
+          // If either amount is 0 or null, it's non-nullifiable
+          if (
+            amountAtoB === 0 ||
+            amountBtoA === 0 ||
+            amountAtoB === null ||
+            amountBtoA === null
+          ) {
+            nonNullifiablePairs.push({
+              companyA,
+              companyB,
+              amountAtoB,
+              amountBtoA,
+            });
+            continue;
+          }
+
           // Check if amounts are equal in magnitude but opposite in sign
           if (
-            amountBtoA !== null &&
             Math.abs(amountAtoB) === Math.abs(amountBtoA) &&
             Math.sign(amountAtoB) !== Math.sign(amountBtoA)
           ) {
@@ -564,8 +951,9 @@ async function findNullifiableTransactions() {
         const amount = parseAmount(values[rowIndex][colIndex]);
 
         // Skip null, undefined, or zero amounts and self-transactions
-        if (amount === null || amount === 0 || fromCompany === toCompany)
+        if (amount === null || fromCompany === toCompany) {
           continue;
+        }
 
         if (!transactionMap.has(fromCompany)) {
           transactionMap.set(fromCompany, {});
@@ -620,20 +1008,6 @@ async function findNullifiableTransactions() {
       return;
     }
   }
-  // ExcelJS processing
-  else {
-    const values = [];
-    headers = worksheet.getRow(1).values.slice(1);
-
-    // Convert ExcelJS worksheet to 2D array
-    for (let rowIndex = 2; rowIndex <= worksheet.rowCount; rowIndex++) {
-      const row = worksheet.getRow(rowIndex);
-      const rowValues = row.values.slice(1);
-      values.push([row.getCell(1).value, ...rowValues]);
-    }
-
-    transactionMap = extractTransactions(values, headers);
-  }
 
   // Find nullifiable and non-nullifiable pairs
   const { nullifiablePairs: localNullifiablePairs, nonNullifiablePairs } =
@@ -643,6 +1017,7 @@ async function findNullifiableTransactions() {
   nullifiablePairs = localNullifiablePairs;
 
   // Detailed logging
+  console.log("Transaction Map:", transactionMap);
   console.log("Nullifiable Pairs:", nullifiablePairs);
   console.log("Non-Nullifiable Pairs:", nonNullifiablePairs);
 
@@ -660,9 +1035,9 @@ async function findNullifiableTransactions() {
       const sheets = spreadsheetResponse.result.sheets;
       const sheetId = sheets[0].properties.sheetId;
 
-      // Prepare batch update requests for nullifiable pairs
-      const nullifiableRequests = nullifiablePairs
-        .flatMap(({ companyA, companyB }) => [
+      // Combine all pairs for comprehensive highlighting
+      const allPairRequests = [
+        ...nullifiablePairs.flatMap(({ companyA, companyB }) => [
           {
             repeatCell: {
               range: {
@@ -707,12 +1082,8 @@ async function findNullifiableTransactions() {
               fields: "userEnteredFormat(backgroundColor)",
             },
           },
-        ])
-        .filter(Boolean);
-
-      // Prepare batch update requests for non-nullifiable pairs
-      const nonNullifiableRequests = nonNullifiablePairs
-        .flatMap(({ companyA, companyB }) => [
+        ]),
+        ...nonNullifiablePairs.flatMap(({ companyA, companyB }) => [
           {
             repeatCell: {
               range: {
@@ -757,109 +1128,19 @@ async function findNullifiableTransactions() {
               fields: "userEnteredFormat(backgroundColor)",
             },
           },
-        ])
-        .filter(Boolean);
+        ]),
+      ];
 
-      // Execute batch update for nullifiable pairs
-      if (nullifiableRequests.length > 0) {
+      // Execute batch update for all pairs
+      if (allPairRequests.length > 0) {
         await gapi.client.sheets.spreadsheets.batchUpdate({
           spreadsheetId: spreadsheetId,
-          resource: { requests: nullifiableRequests },
-        });
-      }
-
-      // Execute batch update for non-nullifiable pairs
-      if (nonNullifiableRequests.length > 0) {
-        await gapi.client.sheets.spreadsheets.batchUpdate({
-          spreadsheetId: spreadsheetId,
-          resource: { requests: nonNullifiableRequests },
+          resource: { requests: allPairRequests },
         });
       }
     } catch (error) {
       console.error("Error highlighting transactions:", error);
     }
-  } else {
-    // Apply coloring for nullifiable pairs
-    for (let rowIndex = 2; rowIndex <= worksheet.rowCount; rowIndex++) {
-      const row = worksheet.getRow(rowIndex);
-      for (let colIndex = 2; colIndex <= worksheet.columnCount; colIndex++) {
-        const amountCell = row.getCell(colIndex);
-        // Reset cell color to white
-        amountCell.fill = {
-          type: "pattern",
-          pattern: "solid",
-          fgColor: { argb: "FFFFFFFF" }, // White background
-        };
-      }
-    }
-
-    // Apply coloring for nullifiable pairs
-    nullifiablePairs.forEach(({ companyA, companyB }) => {
-      for (let rowIndex = 2; rowIndex <= worksheet.rowCount; rowIndex++) {
-        const row = worksheet.getRow(rowIndex);
-        const fromCompany = row.getCell(1).value; // Get the row company
-
-        for (let colIndex = 2; colIndex <= worksheet.columnCount; colIndex++) {
-          const toCompany = worksheet.getRow(1).getCell(colIndex).value; // Get the column company
-          const amountCell = row.getCell(colIndex);
-          const amountValue = amountCell.value;
-
-          // Precise matching for nullifiable pairs
-          if (
-            (fromCompany === companyA && toCompany === companyB) ||
-            (fromCompany === companyB && toCompany === companyA)
-          ) {
-            // Ensure the amount is valid and matches the nullifiable pair
-            if (
-              amountValue !== null &&
-              amountValue !== undefined &&
-              amountValue !== "" &&
-              !isNaN(parseFloat(amountValue)) // Check if it's a valid number
-            ) {
-              amountCell.fill = {
-                type: "pattern",
-                pattern: "solid",
-                fgColor: { argb: "FFFFFF00" }, // Yellow color for nullifiable pairs
-              };
-            }
-          }
-        }
-      }
-    });
-
-    // Optional: Apply coloring for non-nullifiable pairs
-    nonNullifiablePairs.forEach(({ companyA, companyB }) => {
-      for (let rowIndex = 2; rowIndex <= worksheet.rowCount; rowIndex++) {
-        const row = worksheet.getRow(rowIndex);
-        const fromCompany = row.getCell(1).value; // Get the row company
-
-        for (let colIndex = 2; colIndex <= worksheet.columnCount; colIndex++) {
-          const toCompany = worksheet.getRow(1).getCell(colIndex).value; // Get the column company
-          const amountCell = row.getCell(colIndex);
-          const amountValue = amountCell.value;
-
-          // Precise matching for non-nullifiable pairs
-          if (
-            (fromCompany === companyA && toCompany === companyB) ||
-            (fromCompany === companyB && toCompany === companyA)
-          ) {
-            // Ensure the amount is valid
-            if (
-              amountValue !== null &&
-              amountValue !== undefined &&
-              amountValue !== "" &&
-              !isNaN(parseFloat(amountValue)) // Check if it's a valid number
-            ) {
-              amountCell.fill = {
-                type: "pattern",
-                pattern: "solid",
-                fgColor: { argb: "FFFFFFFF" }, // White color for non-nullifiable pairs
-              };
-            }
-          }
-        }
-      }
-    });
   }
 }
 
@@ -961,13 +1242,13 @@ function nullifyGoogleSheetAmounts() {
 
 function nullifyExcelAmounts() {
   // Ensure we have nullifiable pairs from previous processing
-  if (!nullifiablePairs || nullifiablePairs.length === 0) {
+  if (!globalNullifiablePairs || globalNullifiablePairs.length === 0) {
     alert("No nullifiable amounts found.");
     return;
   }
 
   // Apply nullification to Excel worksheet
-  nullifiablePairs.forEach(({ companyA, companyB }) => {
+  globalNullifiablePairs.forEach(({ companyA, companyB }) => {
     for (let rowIndex = 2; rowIndex <= worksheet.rowCount; rowIndex++) {
       const row = worksheet.getRow(rowIndex);
       const fromCompany = row.getCell(1).value;
@@ -1966,11 +2247,13 @@ submitButton.addEventListener("click", async function () {
     updateDataTable(columnCompany, rowCompany, amount);
   }
 
-  await findNullifiableTransactions();
   // Clear inputs after submission
   document.getElementById("amount").value = "";
   commentTextarea.value = ""; // Clear the comment textarea
   rowSelect.clear();
+  // await findNullifiableTransactionsExcel(worksheet);
+  await findNullifiableTransactions();
+  await fillDiagonalCells();
 });
 
 // Function to update the displayed data table
