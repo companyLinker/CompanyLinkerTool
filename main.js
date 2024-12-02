@@ -948,9 +948,10 @@ function nullifyGoogleSheetAmounts() {
       spreadsheetId: spreadsheetId,
       resource: { requests: nullifyRequests },
     })
-    .then((response) => {
+    .then(async (response) => {
+      // Refetch the updated sheet data and re-run nullifiable transactions check
+      await findNullifiableTransactions();
       alert("Amounts nullified successfully!");
-      // Optionally refresh the sheet or trigger a reload
     })
     .catch((error) => {
       console.error("Error nullifying amounts:", error);
