@@ -2451,8 +2451,10 @@ submitButton.addEventListener("click", async function () {
   commentTextarea.value = ""; // Clear the comment textarea
   rowSelect.clear();
   // await findNullifiableTransactionsExcel(worksheet);
+  if (isGoogleSheetData) {
+    await findNullifiableTransactions();
+  }
   await findNullifiableTransactionsExcel(worksheet);
-  await findNullifiableTransactions();
   await fillDiagonalCells();
 });
 
