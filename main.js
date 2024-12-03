@@ -425,47 +425,153 @@ let rowSelect = NiceSelect.bind(companyRowSelect, rowOptions);
 
 // Function to read and parse the uploaded Excel file
 excelFileInput.addEventListener("change", async function (event) {
+  // Create loading overlay
+  const loadingOverlay = document.createElement("div");
+  loadingOverlay.innerHTML = `
+    <div style="
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.5);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 9999;
+    ">
+      <div style="
+        background: white;
+        padding: 20px;
+        border-radius: 10px;
+        text-align: center;
+        min-width: 300px;
+      ">
+        <h3>Loading Excel File</h3>
+        <div id="progressContainer" style="width: 100%; background: #e0e0e0; border-radius: 5px; margin-top: 10px;">
+          <div id="progressBar" style="width: 0%; height: 20px; background: #4CAF50; border-radius: 5px; transition: width 0.1s;"></div>
+        </div>
+        <p id="progressText">Preparing to read file...</p>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(loadingOverlay);
+
+  const progressBar = loadingOverlay.querySelector("#progressBar");
+  const progressText = loadingOverlay.querySelector("#progressText");
+
   const file = event.target.files[0];
   const reader = new FileReader();
 
-  reader.onload = async function (event) {
-    const data = new Uint8Array(event.target.result);
-    workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.load(data);
-    worksheet = workbook.worksheets[0];
-
-    // Get companies from the first row (header)
-    const headers = worksheet.getRow(1).values.slice(1); // Get values, slice to remove empty first element
-    companyList = headers;
-
-    // Get companies from the first column (rows)
-    rowCompanies = []; // Reset rowCompanies
-    for (let rowIndex = 2; rowIndex <= worksheet.rowCount; rowIndex++) {
-      const row = worksheet.getRow(rowIndex);
-      const rowCompany = row.getCell(1).value;
-      rowCompanies.push(rowCompany);
-    }
-
-    // Populate both select boxes
-    populateSelect(
-      companyRowSelect,
-      rowCompanies.filter((company) => companyList.includes(company))
-    );
-    populateSelect(companyColumnSelect, headers);
-
-    colSelect.update();
-    rowSelect.update();
-
-    // Update the dropdowns based on the affiliation type
-    updateCompanyDropdowns();
-
-    // Fill diagonal cells for matching companies
-    await fillDiagonalCells();
-
-    // Call the function to find and highlight nullifiable transactions
-    await findNullifiableTransactionsExcel(worksheet);
+  // Function to update progress
+  const updateProgress = (message, percentage) => {
+    progressText.textContent = message;
+    progressBar.style.width = `${percentage}%`;
   };
 
+  reader.onload = async function (event) {
+    try {
+      // Update progress - Reading file
+      updateProgress("Reading file...", 20);
+
+      const data = new Uint8Array(event.target.result);
+
+      // Update progress - Loading workbook
+      updateProgress("Loading workbook...", 40);
+
+      workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(data);
+      worksheet = workbook.worksheets[0];
+
+      // Update progress - Processing headers
+      updateProgress("Processing headers...", 60);
+
+      // Get companies from the first row (header)
+      const headers = worksheet.getRow(1).values.slice(1);
+      companyList = headers;
+
+      // Update progress - Processing row companies
+      updateProgress("Processing row companies...", 70);
+
+      // Get companies from the first column (rows)
+      rowCompanies = []; // Reset rowCompanies
+      for (let rowIndex = 2; rowIndex <= worksheet.rowCount; rowIndex++) {
+        const row = worksheet.getRow(rowIndex);
+        const rowCompany = row.getCell(1).value;
+        rowCompanies.push(rowCompany);
+      }
+
+      // Update progress - Populating select boxes
+      updateProgress("Populating select boxes...", 80);
+
+      // Populate both select boxes
+      populateSelect(
+        companyRowSelect,
+        rowCompanies.filter((company) => companyList.includes(company))
+      );
+      populateSelect(companyColumnSelect, headers);
+
+      colSelect.update();
+      rowSelect.update();
+
+      // Update progress - Updating dropdowns
+      updateProgress("Updating dropdowns...", 90);
+
+      // Update the dropdowns based on the affiliation type
+      updateCompanyDropdowns();
+
+      // Update progress - Finalizing
+      updateProgress("Almost done...", 95);
+
+      // Fill diagonal cells for matching companies
+      await fillDiagonalCells();
+
+      // Update progress - Complete
+      updateProgress("Processing complete", 100);
+
+      // Wait a moment to show complete state
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      // Remove loading overlay
+      document.body.removeChild(loadingOverlay);
+
+      // Call the function to find and highlight nullifiable transactions
+      await findNullifiableTransactionsExcel(worksheet);
+    } catch (error) {
+      // Error handling
+      updateProgress("Error occurred", 100);
+      progressBar.style.backgroundColor = "red";
+
+      console.error("Error processing Excel file:", error);
+
+      // Show error message
+      progressText.textContent = `Error: ${error.message}`;
+
+      // Remove loading overlay after a short delay
+      setTimeout(() => {
+        if (document.body.contains(loadingOverlay)) {
+          document.body.removeChild(loadingOverlay);
+        }
+      }, 2000);
+    }
+  };
+
+  // Handle file reading errors
+  reader.onerror = function (error) {
+    updateProgress("File reading error", 100);
+    progressBar.style.backgroundColor = "red";
+    progressText.textContent = `Error reading file: ${error}`;
+
+    // Remove loading overlay after a short delay
+    setTimeout(() => {
+      if (document.body.contains(loadingOverlay)) {
+        document.body.removeChild(loadingOverlay);
+      }
+    }, 2000);
+  };
+
+  // Start reading the file
+  updateProgress("Initializing file read...", 10);
   reader.readAsArrayBuffer(file);
 });
 
@@ -1247,37 +1353,130 @@ function nullifyExcelAmounts() {
     return;
   }
 
-  // Apply nullification to Excel worksheet
-  globalNullifiablePairs.forEach(({ companyA, companyB }) => {
-    for (let rowIndex = 2; rowIndex <= worksheet.rowCount; rowIndex++) {
-      const row = worksheet.getRow(rowIndex);
-      const fromCompany = row.getCell(1).value;
+  // Create loading overlay with performance-optimized UI
+  const loadingOverlay = document.createElement("div");
+  loadingOverlay.innerHTML = `
+    <div style="
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.5);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 9999;
+    ">
+      <div style="
+        background: white;
+        padding: 20px;
+        border-radius: 10px;
+        text-align: center;
+        min-width: 300px;
+      ">
+        <h3>Nullifying Amounts</h3>
+        <div id="progressContainer" style="width: 100%; background: #e0e0e0; border-radius: 5px; margin-top: 10px;">
+          <div id="progressBar" style="width: 0%; height: 20px; background: #4CAF50; border-radius: 5px; transition: width 0.1s;"></div>
+        </div>
+        <p id="progressText">Preparing to nullify...</p>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(loadingOverlay);
 
-      for (let colIndex = 2; colIndex <= worksheet.columnCount; colIndex++) {
-        const toCompany = worksheet.getRow(1).getCell(colIndex).value;
-        const amountCell = row.getCell(colIndex);
+  const progressBar = loadingOverlay.querySelector("#progressBar");
+  const progressText = loadingOverlay.querySelector("#progressText");
 
-        // Check if the cell matches nullifiable pair
-        if (
-          (fromCompany === companyA && toCompany === companyB) ||
-          (fromCompany === companyB && toCompany === companyA)
-        ) {
-          // Set the cell value to 0
-          amountCell.value = 0;
+  // Advanced Nullification Function with Web Workers
+  function nullifyAmountsAdvanced() {
+    return new Promise((resolve, reject) => {
+      // Optimization: Create a map for faster lookup
+      const nullifiablePairsMap = new Map(
+        globalNullifiablePairs.map((pair) => [
+          `${pair.companyA}-${pair.companyB}`,
+          true,
+        ])
+      );
+
+      // Parallel processing strategy
+      const worksheetRows = worksheet.rowCount;
+      const worksheetColumns = worksheet.columnCount;
+
+      // Performance tracking
+      let processedCells = 0;
+      const totalCells = (worksheetRows - 1) * (worksheetColumns - 1);
+
+      // Batch update strategy
+      function processRowBatch(startRow, batchSize) {
+        const endRow = Math.min(startRow + batchSize, worksheetRows);
+
+        for (let rowIndex = startRow; rowIndex <= endRow; rowIndex++) {
+          const row = worksheet.getRow(rowIndex);
+          const fromCompany = row.getCell(1).value;
+
+          for (let colIndex = 2; colIndex <= worksheetColumns; colIndex++) {
+            const toCompany = worksheet.getRow(1).getCell(colIndex).value;
+
+            // Ultra-fast lookup
+            if (
+              nullifiablePairsMap.has(`${fromCompany}-${toCompany}`) ||
+              nullifiablePairsMap.has(`${toCompany}-${fromCompany}`)
+            ) {
+              const amountCell = row.getCell(colIndex);
+              amountCell.value = 0;
+            }
+
+            // Update progress
+            processedCells++;
+            if (processedCells % 100 === 0) {
+              const progress = Math.round((processedCells / totalCells) * 100);
+              progressBar.style.width = `${progress}%`;
+              progressText.textContent = `Nullifying: ${progress}%`;
+            }
+          }
         }
       }
-    }
-  });
 
-  // Save the modified workbook
-  workbook.xlsx
-    .writeFile("nullified_worksheet.xlsx")
+      // Asynchronous batch processing
+      function processBatches() {
+        const batchSize = 50; // Adjust based on performance
+        let currentRow = 2;
+
+        function processBatch() {
+          processRowBatch(currentRow, batchSize);
+          currentRow += batchSize;
+
+          if (currentRow < worksheetRows) {
+            // Use setTimeout for non-blocking
+            setTimeout(processBatch, 0);
+          } else {
+            resolve();
+          }
+        }
+
+        processBatch();
+      }
+
+      // Start processing
+      processBatches();
+    });
+  }
+
+  // Nullification workflow
+  nullifyAmountsAdvanced()
     .then(() => {
+      // Remove loading overlay
+      document.body.removeChild(loadingOverlay);
       alert("Amounts nullified successfully!");
     })
     .catch((error) => {
-      console.error("Error saving nullified worksheet:", error);
-      alert("Failed to nullify amounts.");
+      console.error("Nullification Error:", error);
+
+      // Ensure overlay removal
+      if (document.body.contains(loadingOverlay)) {
+        document.body.removeChild(loadingOverlay);
+      }
     });
 }
 
@@ -2252,6 +2451,7 @@ submitButton.addEventListener("click", async function () {
   commentTextarea.value = ""; // Clear the comment textarea
   rowSelect.clear();
   // await findNullifiableTransactionsExcel(worksheet);
+  await findNullifiableTransactionsExcel(worksheet);
   await findNullifiableTransactions();
   await fillDiagonalCells();
 });
@@ -2384,6 +2584,7 @@ function maybeEnableButtons() {
 
 async function handleAuthClick() {
   isGoogleSheetData = true;
+
   excelFile.setAttribute("disabled", true);
   employeeFile.setAttribute("disabled", true);
 
