@@ -164,8 +164,9 @@ body {
 }
 
 .table-container {
-  height: 300px;
+  max-height: 300px;
   overflow-y: auto;
+  height: 100%;
 }
 
 .table-container thead {
