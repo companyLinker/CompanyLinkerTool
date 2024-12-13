@@ -404,6 +404,44 @@ async function populateDataTable(selectedRowCompany, selectedColumnCompany) {
   dataBody.appendChild(fragment);
 }
 
+document.getElementById("downloadLog").addEventListener("click", function () {
+  // Get the table element
+  const table = document.getElementById("dataTable");
+
+  // Create a CSV content string
+  let csvContent = "data:text/csv;charset=utf-8,";
+
+  // Add table headers
+  const headers = Array.from(table.querySelectorAll("thead th"))
+    .map((header) => `"${header.textContent}"`)
+    .join(",");
+  csvContent += headers + "\n";
+
+  // Add table rows
+  const rows = table.querySelectorAll("tbody tr");
+  rows.forEach((row) => {
+    const rowData = Array.from(row.querySelectorAll("td"))
+      .map((cell) => `"${cell.textContent.replace(/"/g, '""')}"`)
+      .join(",");
+    csvContent += rowData + "\n";
+  });
+
+  // Create a download link
+  const encodedUri = encodeURI(csvContent);
+  const link = document.createElement("a");
+  link.setAttribute("href", encodedUri);
+
+  // Generate filename with current date
+  const currentDate = new Date();
+  const formattedDate = currentDate.toISOString().split("T")[0]; // YYYY-MM-DD format
+  link.setAttribute("download", `transaction_log_${formattedDate}.csv`);
+
+  // Trigger download
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+});
+
 // Event listeners for dropdowns to update the data table dynamically
 companyRowSelect.addEventListener("change", function () {
   const rowCompany = companyRowSelect.value;
@@ -524,7 +562,7 @@ excelFileInput.addEventListener("change", async function (event) {
       updateProgress("Almost done...", 95);
 
       // Fill diagonal cells for matching companies
-      await fillDiagonalCells();
+      await fillDiagonalCells(companyList, spreadsheetId);
 
       // Update progress - Complete
       updateProgress("Processing complete", 100);
@@ -1493,7 +1531,7 @@ function updateCompanyDropdowns() {
   if (isAffiliated) {
     // Affiliated: Show only companies that exist in both rows and columns, excluding the blank row
     availableRowCompanies = rowCompanies
-      .slice(0, blankRowIndex)
+      .slice(0)
       .filter((company) => companyList.includes(company));
     availableColumnCompanies = companyList; // Companies that can be columns
   } else {
@@ -1507,7 +1545,7 @@ function updateCompanyDropdowns() {
   // Populate dropdowns
   populateSelect(companyRowSelect, availableRowCompanies);
   populateSelect(companyColumnSelect, availableColumnCompanies);
-
+  console.log(availableRowCompanies, ":::availableRowCompanies");
   colSelect.update();
   rowSelect.update();
 
@@ -1523,6 +1561,7 @@ updateCompanyDropdowns();
 
 // Function to populate dropdowns
 function populateSelect(selectElement, options) {
+  console.log(options, ":::options");
   selectElement.innerHTML =
     '<option value="" selected>Select a company</option>';
   options.forEach((option) => {
@@ -1601,237 +1640,58 @@ async function addCompany() {
           }
         });
 
-        // Process each company from the file
-        for (const newCompany of companies) {
-          // Check if the company already exists
-          if (
-            companyList.includes(newCompany) ||
-            rowCompanies.includes(newCompany)
-          ) {
-            alert(`Company ${newCompany} already exists. Skipping.`);
-            continue;
+        // const companies = companies.filter(
+        //   (company) =>
+        //     !companyList.includes(company) && !rowCompanies.includes(company)
+        // );
+
+        companies.forEach((company) => {
+          if (companyList.includes(company) || rowCompanies.includes(company)) {
+            alert(`Company ${company} already exists. Skipping.`);
           }
+        });
 
-          // Use the existing logic for adding companies
-          if (isGoogleSheetData) {
-            try {
-              // Get the sheet URL and extract spreadsheet ID
-              const sheetUrl = document.getElementById("googleSheetUrl").value;
-              const sheetIdMatch = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
+        // if (companies.length === 0) {
+        //   alert("No new companies to add.");
+        //   return;
+        // }
 
-              if (!sheetIdMatch) {
-                alert("Invalid Google Sheet URL.");
-                continue;
-              }
+        // Use the existing logic for adding companies
+        if (isGoogleSheetData) {
+          try {
+            const sheetUrl = document.getElementById("googleSheetUrl").value;
+            const sheetIdMatch = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
 
-              const spreadsheetId = sheetIdMatch[1];
+            if (!sheetIdMatch) {
+              alert("Invalid Google Sheet URL.");
+              return;
+            }
 
-              // Get the sheet metadata to retrieve sheet names
-              const spreadsheetResponse =
-                await gapi.client.sheets.spreadsheets.get({
-                  spreadsheetId: spreadsheetId,
-                });
+            const spreadsheetId = sheetIdMatch[1];
 
-              const sheets = spreadsheetResponse.result.sheets;
-              if (!sheets || sheets.length === 0) {
-                alert("No sheets found in the spreadsheet.");
-                continue;
-              }
-
-              // Use the first sheet by default (you can modify this logic if needed)
-              const sheetName = sheets[0].properties.title;
-
-              // Fetch the current sheet data
-              const response = await gapi.client.sheets.spreadsheets.values.get(
-                {
-                  spreadsheetId: spreadsheetId,
-                  range: sheetName,
-                }
-              );
-
-              const range = response.result;
-              if (!range || !range.values || range.values.length === 0) {
-                alert("No values found in the sheet.");
-                continue;
-              }
-
-              // Find the blank row index
-              let blankRowIndex = rowCompanies.findIndex((company, index) => {
-                return (
-                  (company === null ||
-                    company === undefined ||
-                    company.toString().trim() === "") &&
-                  index < rowCompanies.length - 1
-                );
-              });
-
-              if (blankRowIndex === -1) {
-                blankRowIndex = rowCompanies.length;
-              }
-
-              // Prepare the request for updating the sheet
-              const requests = [];
-
-              if (affiliatedRadio.checked) {
-                // Affiliated mode: Add to column headers and rows
-                const columnIndex = companyList.length + 1;
-
-                // Add header request
-                requests.push({
-                  insertDimension: {
-                    range: {
-                      sheetId: sheets[0].properties.sheetId,
-                      dimension: "COLUMNS",
-                      startIndex: columnIndex,
-                      endIndex: columnIndex + 1,
-                    },
-                    inheritFromBefore: false,
-                  },
-                });
-
-                // Set the new column header value
-                requests.push({
-                  updateCells: {
-                    rows: [
-                      {
-                        values: [
-                          {
-                            userEnteredValue: { stringValue: newCompany },
-                          },
-                        ],
-                      },
-                    ],
-                    fields: "userEnteredValue",
-                    start: {
-                      sheetId: sheets[0].properties.sheetId,
-                      rowIndex: 0,
-                      columnIndex: columnIndex,
-                    },
-                  },
-                });
-
-                // Add row request
-                requests.push({
-                  insertDimension: {
-                    range: {
-                      sheetId: sheets[0].properties.sheetId,
-                      dimension: "ROWS",
-                      startIndex: blankRowIndex + 1,
-                      endIndex: blankRowIndex + 2,
-                    },
-                    inheritFromBefore: false,
-                  },
-                });
-
-                // Set the new row value
-                requests.push({
-                  updateCells: {
-                    rows: [
-                      {
-                        values: [
-                          {
-                            userEnteredValue: { stringValue: newCompany },
-                          },
-                        ],
-                      },
-                    ],
-                    fields: "userEnteredValue",
-                    start: {
-                      sheetId: sheets[0].properties.sheetId,
-                      rowIndex: blankRowIndex + 1,
-                      columnIndex: 0,
-                    },
-                  },
-                });
-              } else {
-                // Non-affiliated mode: Add row at the end of the second list
-                let lastNonEmptyRowIndex = rowCompanies.length;
-
-                // Find the last non-empty row in the second list
-                for (let i = rowCompanies.length - 1; i >= 0; i--) {
-                  if (
-                    rowCompanies[i] !== null &&
-                    rowCompanies[i] !== undefined &&
-                    rowCompanies[i].toString().trim() !== ""
-                  ) {
-                    lastNonEmptyRowIndex = i + 1;
-                    break;
-                  }
-                }
-
-                // Insert a new row after the last non-empty row
-                requests.push({
-                  insertDimension: {
-                    range: {
-                      sheetId: sheets[0].properties.sheetId,
-                      dimension: "ROWS",
-                      startIndex: lastNonEmptyRowIndex + 1,
-                      endIndex: lastNonEmptyRowIndex + 2,
-                    },
-                    inheritFromBefore: false,
-                  },
-                });
-
-                // Set the new row value
-                requests.push({
-                  updateCells: {
-                    rows: [
-                      {
-                        values: [
-                          {
-                            userEnteredValue: { stringValue: newCompany },
-                          },
-                        ],
-                      },
-                    ],
-                    fields: "userEnteredValue",
-                    start: {
-                      sheetId: sheets[0].properties.sheetId,
-                      rowIndex: lastNonEmptyRowIndex + 1,
-                      columnIndex: 0,
-                    },
-                  },
-                });
-              }
-
-              // Execute batch update
-              await gapi.client.sheets.spreadsheets.batchUpdate({
+            // Get the sheet metadata to retrieve sheet names
+            const spreadsheetResponse =
+              await gapi.client.sheets.spreadsheets.get({
                 spreadsheetId: spreadsheetId,
-                resource: { requests: requests },
               });
 
-              // Refetch the updated sheet data
-              const updatedResponse =
-                await gapi.client.sheets.spreadsheets.values.get({
-                  spreadsheetId: spreadsheetId,
-                  range: sheetName,
-                });
-
-              // Update local data structures
-              const updatedData = updatedResponse.result.values;
-              companyList = updatedData[0].slice(1);
-              rowCompanies = updatedData.slice(1).map((row) => row[0]);
-
-              // Update dropdowns and UI
-              updateCompanyDropdowns();
-              newCompanyInput.value = "";
-              fillDiagonalCells(companyList, spreadsheetId);
-            } catch (error) {
-              console.error("Error adding company to Google Sheet:", error);
-              alert("Failed to add company: " + error.message);
-            }
-          } else {
-            // Existing Excel file upload logic remains unchanged
-            // Check if the company already exists
-            if (
-              companyList.includes(newCompany) ||
-              rowCompanies.includes(newCompany)
-            ) {
-              alert(`Company ${newCompany} already exists. Skipping.`);
-              continue; // Skip to the next company if it already exists
+            const sheets = spreadsheetResponse.result.sheets;
+            if (!sheets || sheets.length === 0) {
+              alert("No sheets found in the spreadsheet.");
+              return;
             }
 
-            // Determine where to add the new company
+            const sheetName = sheets[0].properties.title;
+
+            // Fetch the current sheet data
+            const response = await gapi.client.sheets.spreadsheets.values.get({
+              spreadsheetId: spreadsheetId,
+              range: sheetName,
+            });
+
+            const range = response.result;
+
+            // Find the blank row index
             let blankRowIndex = rowCompanies.findIndex((company, index) => {
               return (
                 (company === null ||
@@ -1842,61 +1702,263 @@ async function addCompany() {
             });
 
             if (blankRowIndex === -1) {
-              // If no second blank row, treat the end as the separator
               blankRowIndex = rowCompanies.length;
             }
+
+            // Prepare the request for updating the sheet
+            const requests = [];
 
             if (affiliatedRadio.checked) {
               // Affiliated mode: Add to column headers and rows
               const columnIndex = companyList.length + 1;
 
-              // Add to column header if it doesn't already exist
-              if (!companyList.includes(newCompany)) {
-                worksheet.getCell(
-                  `${indexToColumnLetter(columnIndex)}1`
-                ).value = newCompany;
-                companyList.push(newCompany);
-              }
+              // Add header request
+              requests.push({
+                insertDimension: {
+                  range: {
+                    sheetId: sheets[0].properties.sheetId,
+                    dimension: "COLUMNS",
+                    startIndex: columnIndex,
+                    endIndex: columnIndex + companies.length,
+                  },
+                  inheritFromBefore: false,
+                },
+              });
 
-              // Insert a new row before the blank row without replacing existing data
-              worksheet.spliceRows(blankRowIndex + 2, 0, [newCompany]);
-              rowCompanies.splice(blankRowIndex, 0, newCompany);
+              // Set the new column header values
+              const headerValues = companies.map((company) => ({
+                userEnteredValue: { stringValue: company },
+                userEnteredFormat: {
+                  backgroundColor: {
+                    red: 1.0, // White background
+                    green: 1.0,
+                    blue: 1.0,
+                  },
+                  textFormat: {
+                    foregroundColor: {
+                      red: 0.0, // Black text
+                      green: 0.0,
+                      blue: 0.0,
+                    },
+                    bold: false,
+                  },
+                },
+              }));
+
+              requests.push({
+                updateCells: {
+                  rows: [{ values: headerValues }],
+                  fields: "userEnteredValue,userEnteredFormat",
+                  start: {
+                    sheetId: sheets[0].properties.sheetId,
+                    rowIndex: 0, // Header row
+                    columnIndex: columnIndex,
+                  },
+                },
+              });
+
+              // Add row request
+              requests.push({
+                insertDimension: {
+                  range: {
+                    sheetId: sheets[0].properties.sheetId,
+                    dimension: "ROWS",
+                    startIndex: blankRowIndex + 1,
+                    endIndex: blankRowIndex + 1 + companies.length,
+                  },
+                  inheritFromBefore: false,
+                },
+              });
+
+              // Set the new row values
+              const rowValues = companies.map((company) => ({
+                values: [
+                  {
+                    userEnteredValue: { stringValue: company },
+                    userEnteredFormat: {
+                      backgroundColor: {
+                        red: 1.0, // White background
+                        green: 1.0,
+                        blue: 1.0,
+                      },
+                      textFormat: {
+                        foregroundColor: {
+                          red: 0.0, // Black text
+                          green: 0.0,
+                          blue: 0.0,
+                        },
+                        bold: false,
+                      },
+                    },
+                  },
+                ],
+              }));
+
+              requests.push({
+                updateCells: {
+                  rows: rowValues,
+                  fields: "userEnteredValue,userEnteredFormat",
+                  start: {
+                    sheetId: sheets[0].properties.sheetId,
+                    rowIndex: blankRowIndex + 1,
+                    columnIndex: 0,
+                  },
+                },
+              });
             } else {
-              // Non-affiliated mode: Add after the last entry of the second list
-              let lastNonEmptyRowIndex = rowCompanies.length; // Start with the length of rowCompanies
-
-              // Find the last non-empty row in the second list
+              // Non-affiliated mode: Add rows at the end of the second list
+              let lastNonEmptyRowIndex = rowCompanies.length;
               for (let i = rowCompanies.length - 1; i >= 0; i--) {
                 if (
                   rowCompanies[i] !== null &&
                   rowCompanies[i] !== undefined &&
                   rowCompanies[i].toString().trim() !== ""
                 ) {
-                  lastNonEmptyRowIndex = i + 1; // Set to the next index
+                  lastNonEmptyRowIndex = i + 1;
                   break;
                 }
               }
 
-              // Insert a new row after the last non-empty row
-              worksheet.spliceRows(lastNonEmptyRowIndex + 2, 0, [newCompany]);
-              rowCompanies.splice(lastNonEmptyRowIndex + 1, 0, newCompany);
+              function findFirstBlankRow(companies) {
+                for (let index = 0; index < companies.length; index++) {
+                  const company = companies[index];
+                  // Check if the current row is blank
+                  const isCurrentRowBlank =
+                    company === null ||
+                    company === undefined ||
+                    (typeof company === "string" && company.trim() === "");
+
+                  // If a blank row is found, return its index
+                  if (isCurrentRowBlank) {
+                    return index; // Return the index of the first blank row
+                  }
+                }
+                return -1; // Return -1 if no blank row is found
+              }
+              const firstBlankRowIndex = findFirstBlankRow(rowCompanies);
+
+              // Insert new rows for new companies
+              requests.push({
+                insertDimension: {
+                  range: {
+                    sheetId: sheets[0].properties.sheetId,
+                    dimension: "ROWS",
+                    startIndex: lastNonEmptyRowIndex + 1,
+                    endIndex: lastNonEmptyRowIndex + 1 + companies.length,
+                  },
+                  inheritFromBefore: false,
+                },
+              });
+
+              // Set the new row values
+              const rowValues = companies.map((company) => ({
+                values: [
+                  {
+                    userEnteredValue: { stringValue: company },
+                  },
+                ],
+              }));
+
+              if (firstBlankRowIndex === -1) {
+                requests.push({
+                  updateCells: {
+                    rows: rowValues,
+                    fields: "userEnteredValue",
+                    start: {
+                      sheetId: sheets[0].properties.sheetId,
+                      rowIndex: lastNonEmptyRowIndex + 2,
+                      columnIndex: 0,
+                    },
+                  },
+                });
+              } else {
+                requests.push({
+                  updateCells: {
+                    rows: rowValues,
+                    fields: "userEnteredValue",
+                    start: {
+                      sheetId: sheets[0].properties.sheetId,
+                      rowIndex: lastNonEmptyRowIndex + 1,
+                      columnIndex: 0,
+                    },
+                  },
+                });
+              }
             }
+
+            // Execute batch update
+            await gapi.client.sheets.spreadsheets.batchUpdate({
+              spreadsheetId: spreadsheetId,
+              resource: { requests: requests },
+            });
+
+            // Refetch the updated sheet data
+            const updatedResponse =
+              await gapi.client.sheets.spreadsheets.values.get({
+                spreadsheetId: spreadsheetId,
+                range: sheetName,
+              });
+
+            // Update local data structures
+            const updatedData = updatedResponse.result.values;
+            companyList = updatedData[0].slice(1);
+            rowCompanies = updatedData.slice(1).map((row) => row[0]);
+
+            // Update dropdowns and UI
+            updateCompanyDropdowns();
+            newCompanyInput.value = "";
+            await fillDiagonalCells(companyList, spreadsheetId);
+          } catch (error) {
+            console.error("Error adding companies to Google Sheet:", error);
           }
+        } else {
+          // Existing Excel file upload logic remains unchanged
+          // Check if the company already exists
+          const existingCompanies = companies.filter(
+            (company) =>
+              companyList.includes(company) || rowCompanies.includes(company)
+          );
+
+          if (existingCompanies.length > 0) {
+            alert(
+              `The following companies already exist: ${existingCompanies.join(
+                ", "
+              )}`
+            );
+            return;
+          }
+
+          // Non-affiliated mode: Add companies to the end of the list
+          const lastNonEmptyRowIndex = rowCompanies.length;
+
+          // Insert new rows for each new company
+          companies.forEach((company) => {
+            worksheet.spliceRows(lastNonEmptyRowIndex + 2, 0, [company]);
+            rowCompanies.push(company);
+          });
+
+          // Update the worksheet.rowCount property if necessary
+          worksheet.rowCount = Math.max(
+            worksheet.rowCount,
+            rowCompanies.length + 1
+          );
+
+          // Recalculate indices
+          companyList = worksheet.getRow(1).values.slice(1);
+          rowCompanies = [];
+          for (let i = 2; i <= worksheet.rowCount; i++) {
+            rowCompanies.push(worksheet.getRow(i).getCell(1).value);
+          }
+
+          // Populate both select boxes again
+          updateCompanyDropdowns();
+
+          // Clear the input field
+          newCompanyInput.value = "";
+
+          // Fill diagonal cells for matching companies
+          await fillDiagonalCells(companyList, spreadsheetId);
         }
-        worksheet.rowCount = Math.max(
-          worksheet.rowCount,
-          rowCompanies.length + 1
-        );
-        console.log(worksheet.rowCount, ":::worksheet.rowCount");
-        companyList = worksheet.getRow(1).values.slice(1);
-        rowCompanies = [];
-        for (let i = 2; i <= worksheet.rowCount; i++) {
-          rowCompanies.push(worksheet.getRow(i).getCell(1).value);
-        }
-        updateCompanyDropdowns();
-        fillDiagonalCells();
-        // Clear file input
-        companyListFileInput.value = "";
       };
 
       reader.readAsArrayBuffer(file);
@@ -1907,16 +1969,17 @@ async function addCompany() {
   } else {
     const newCompany = newCompanyInput.value.trim();
 
+    if (companyList.includes(newCompany) || rowCompanies.includes(newCompany)) {
+      alert(`Company ${newCompany} already exists. Skipping.`);
+      return;
+    }
+
     if (!newCompany) {
       alert("Please enter a company name.");
       return;
     }
 
     // Check if the company already exists
-    if (companyList.includes(newCompany) || rowCompanies.includes(newCompany)) {
-      alert("This company already exists.");
-      return;
-    }
 
     // If using Google Sheet data
     if (isGoogleSheetData) {
@@ -1953,10 +2016,6 @@ async function addCompany() {
         });
 
         const range = response.result;
-        if (!range || !range.values || range.values.length === 0) {
-          alert("No values found in the sheet.");
-          return;
-        }
 
         // Find the blank row index
         let blankRowIndex = rowCompanies.findIndex((company, index) => {
@@ -2062,6 +2121,27 @@ async function addCompany() {
             }
           }
 
+          function findFirstBlankRow(companies) {
+            for (let index = 0; index < companies.length; index++) {
+              const company = companies[index];
+              // Check if the current row is blank
+              const isCurrentRowBlank =
+                company === null ||
+                company === undefined ||
+                (typeof company === "string" && company.trim() === "");
+
+              // If a blank row is found, return its index
+              if (isCurrentRowBlank) {
+                return index; // Return the index of the first blank row
+              }
+            }
+            return -1; // Return -1 if no blank row is found
+          }
+
+          // Use the function to find the first blank row
+          const firstBlankRowIndex = findFirstBlankRow(rowCompanies);
+          console.log(firstBlankRowIndex, ":::firstBlankRowIndex");
+
           // Insert a new row after the last non-empty row
           requests.push({
             insertDimension: {
@@ -2075,26 +2155,48 @@ async function addCompany() {
             },
           });
 
-          // Set the new row value
-          requests.push({
-            updateCells: {
-              rows: [
-                {
-                  values: [
-                    {
-                      userEnteredValue: { stringValue: newCompany },
-                    },
-                  ],
+          if (firstBlankRowIndex === -1) {
+            // Set the new row value
+            requests.push({
+              updateCells: {
+                rows: [
+                  {
+                    values: [
+                      {
+                        userEnteredValue: { stringValue: newCompany },
+                      },
+                    ],
+                  },
+                ],
+                fields: "userEnteredValue",
+                start: {
+                  sheetId: sheets[0].properties.sheetId,
+                  rowIndex: lastNonEmptyRowIndex + 2, // Set the value in the newly inserted row
+                  columnIndex: 0,
                 },
-              ],
-              fields: "userEnteredValue",
-              start: {
-                sheetId: sheets[0].properties.sheetId,
-                rowIndex: lastNonEmptyRowIndex + 1, // Set the value in the newly inserted row
-                columnIndex: 0,
               },
-            },
-          });
+            });
+          } else {
+            requests.push({
+              updateCells: {
+                rows: [
+                  {
+                    values: [
+                      {
+                        userEnteredValue: { stringValue: newCompany },
+                      },
+                    ],
+                  },
+                ],
+                fields: "userEnteredValue",
+                start: {
+                  sheetId: sheets[0].properties.sheetId,
+                  rowIndex: lastNonEmptyRowIndex + 1, // Set the value in the newly inserted row
+                  columnIndex: 0,
+                },
+              },
+            });
+          }
         }
 
         // Execute batch update
@@ -2118,7 +2220,7 @@ async function addCompany() {
         // Update dropdowns and UI
         updateCompanyDropdowns();
         newCompanyInput.value = "";
-        fillDiagonalCells(companyList, spreadsheetId);
+        await fillDiagonalCells(companyList, spreadsheetId);
       } catch (error) {
         console.error("Error adding company to Google Sheet:", error);
         alert("Failed to add company: " + error.message);
@@ -2202,7 +2304,7 @@ async function addCompany() {
       newCompanyInput.value = "";
 
       // Fill diagonal cells for matching companies
-      fillDiagonalCells();
+      await fillDiagonalCells(companyList, spreadsheetId);
     }
   }
 }
@@ -2455,7 +2557,7 @@ submitButton.addEventListener("click", async function () {
     await findNullifiableTransactions();
   }
   await findNullifiableTransactionsExcel(worksheet);
-  await fillDiagonalCells();
+  await fillDiagonalCells(companyList, spreadsheetId);
 });
 
 // Function to update the displayed data table
