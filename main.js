@@ -1291,7 +1291,7 @@ async function findNullifiableTransactions() {
 // Call this function after populating the data
 findNullifiableTransactions();
 
-const NULLIFY_PASSWORD = "123";
+const NULLIFY_PASSWORD = "Ashish555";
 
 // Event listener for nullify button
 document.getElementById("nullifyBtn").addEventListener("click", function () {
