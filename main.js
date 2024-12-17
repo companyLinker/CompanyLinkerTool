@@ -1645,10 +1645,24 @@ async function addCompany() {
         //     !companyList.includes(company) && !rowCompanies.includes(company)
         // );
 
+        let hasDuplicates = false;
+
         companies.forEach((company) => {
           if (companyList.includes(company) || rowCompanies.includes(company)) {
             alert(`Company ${company} already exists. Skipping.`);
+            hasDuplicates = true; // Set the flag to true if a duplicate is found
           }
+        });
+
+        // Check if any duplicates were found before adding companies
+        if (hasDuplicates) {
+          return; // Exit the function if duplicates exist
+        }
+
+        // Proceed to add companies if no duplicates were found
+        companies.forEach((company) => {
+          worksheet.spliceRows(lastNonEmptyRowIndex + 2, 0, [company]);
+          rowCompanies.push(company);
         });
 
         // if (companies.length === 0) {
