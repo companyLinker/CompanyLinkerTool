@@ -208,8 +208,6 @@ async function populateDataTable(selectedRowCompany, selectedColumnCompany) {
     const sheetIdMatch = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
 
     if (!sheetIdMatch) {
-      document.getElementById("content").innerText =
-        "Invalid Google Sheet URL.";
       return;
     }
 
@@ -223,8 +221,6 @@ async function populateDataTable(selectedRowCompany, selectedColumnCompany) {
 
       const sheets = spreadsheetResponse.result.sheets;
       if (!sheets || sheets.length === 0) {
-        document.getElementById("content").innerText =
-          "No sheets found in the spreadsheet.";
         return;
       }
 
@@ -240,7 +236,6 @@ async function populateDataTable(selectedRowCompany, selectedColumnCompany) {
 
       const range = response.result;
       if (!range || !range.values || range.values.length === 0) {
-        document.getElementById("content").innerText = "No values found.";
         return;
       }
 
@@ -311,7 +306,6 @@ async function populateDataTable(selectedRowCompany, selectedColumnCompany) {
         }
       }
     } catch (err) {
-      document.getElementById("content").innerText = err.message;
       return;
     }
   } else {
@@ -1645,25 +1639,26 @@ async function addCompany() {
         //     !companyList.includes(company) && !rowCompanies.includes(company)
         // );
 
-        let hasDuplicates = false;
+        // Filter out existing companies
+        const uniqueNewCompanies = companies.filter(
+          (company) =>
+            !companyList.includes(company) && !rowCompanies.includes(company)
+        );
 
-        companies.forEach((company) => {
-          if (companyList.includes(company) || rowCompanies.includes(company)) {
-            alert(`Company ${company} already exists. Skipping.`);
-            hasDuplicates = true; // Set the flag to true if a duplicate is found
-          }
-        });
+        // Check for existing companies
+        const existingCompanies = companies.filter(
+          (company) =>
+            companyList.includes(company) || rowCompanies.includes(company)
+        );
 
-        // Check if any duplicates were found before adding companies
-        if (hasDuplicates) {
-          return; // Exit the function if duplicates exist
+        // If there are existing companies, show an alert
+        if (existingCompanies.length > 0) {
+          alert(
+            `The following companies already exist: ${existingCompanies.join(
+              ", "
+            )}`
+          );
         }
-
-        // Proceed to add companies if no duplicates were found
-        companies.forEach((company) => {
-          worksheet.spliceRows(lastNonEmptyRowIndex + 2, 0, [company]);
-          rowCompanies.push(company);
-        });
 
         // if (companies.length === 0) {
         //   alert("No new companies to add.");
@@ -1733,14 +1728,14 @@ async function addCompany() {
                     sheetId: sheets[0].properties.sheetId,
                     dimension: "COLUMNS",
                     startIndex: columnIndex,
-                    endIndex: columnIndex + companies.length,
+                    endIndex: columnIndex + uniqueNewCompanies.length,
                   },
                   inheritFromBefore: false,
                 },
               });
 
               // Set the new column header values
-              const headerValues = companies.map((company) => ({
+              const headerValues = uniqueNewCompanies.map((company) => ({
                 userEnteredValue: { stringValue: company },
                 userEnteredFormat: {
                   backgroundColor: {
@@ -1778,14 +1773,14 @@ async function addCompany() {
                     sheetId: sheets[0].properties.sheetId,
                     dimension: "ROWS",
                     startIndex: blankRowIndex + 1,
-                    endIndex: blankRowIndex + 1 + companies.length,
+                    endIndex: blankRowIndex + 1 + uniqueNewCompanies.length,
                   },
                   inheritFromBefore: false,
                 },
               });
 
               // Set the new row values
-              const rowValues = companies.map((company) => ({
+              const rowValues = uniqueNewCompanies.map((company) => ({
                 values: [
                   {
                     userEnteredValue: { stringValue: company },
@@ -1833,9 +1828,13 @@ async function addCompany() {
                 }
               }
 
-              function findFirstBlankRow(companies) {
-                for (let index = 0; index < companies.length; index++) {
-                  const company = companies[index];
+              function findFirstBlankRow(uniqueNewCompanies) {
+                for (
+                  let index = 0;
+                  index < uniqueNewCompanies.length;
+                  index++
+                ) {
+                  const company = uniqueNewCompanies[index];
                   // Check if the current row is blank
                   const isCurrentRowBlank =
                     company === null ||
@@ -1858,14 +1857,15 @@ async function addCompany() {
                     sheetId: sheets[0].properties.sheetId,
                     dimension: "ROWS",
                     startIndex: lastNonEmptyRowIndex + 1,
-                    endIndex: lastNonEmptyRowIndex + 1 + companies.length,
+                    endIndex:
+                      lastNonEmptyRowIndex + 1 + uniqueNewCompanies.length,
                   },
                   inheritFromBefore: false,
                 },
               });
 
               // Set the new row values
-              const rowValues = companies.map((company) => ({
+              const rowValues = uniqueNewCompanies.map((company) => ({
                 values: [
                   {
                     userEnteredValue: { stringValue: company },
@@ -1946,7 +1946,7 @@ async function addCompany() {
           const lastNonEmptyRowIndex = rowCompanies.length;
 
           // Insert new rows for each new company
-          companies.forEach((company) => {
+          uniqueNewCompanies.forEach((company) => {
             worksheet.spliceRows(lastNonEmptyRowIndex + 2, 0, [company]);
             rowCompanies.push(company);
           });
@@ -2135,9 +2135,9 @@ async function addCompany() {
             }
           }
 
-          function findFirstBlankRow(companies) {
-            for (let index = 0; index < companies.length; index++) {
-              const company = companies[index];
+          function findFirstBlankRow(uniqueNewCompanies) {
+            for (let index = 0; index < uniqueNewCompanies.length; index++) {
+              const company = uniqueNewCompanies[index];
               // Check if the current row is blank
               const isCurrentRowBlank =
                 company === null ||
@@ -2744,7 +2744,6 @@ async function fetchDataFromSheet() {
   const sheetIdMatch = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
 
   if (!sheetIdMatch) {
-    document.getElementById("content").innerText = "Invalid Google Sheet URL.";
     return;
   }
 
@@ -2758,8 +2757,6 @@ async function fetchDataFromSheet() {
 
     const sheets = spreadsheetResponse.result.sheets;
     if (!sheets || sheets.length === 0) {
-      document.getElementById("content").innerText =
-        "No sheets found in the spreadsheet.";
       return;
     }
 
@@ -2777,7 +2774,6 @@ async function fetchDataFromSheet() {
 
     const range = response.result;
     if (!range || !range.values || range.values.length === 0) {
-      document.getElementById("content").innerText = "No values found.";
       return;
     }
 
@@ -2811,7 +2807,6 @@ async function fetchDataFromSheet() {
 
     await findNullifiableTransactions();
   } catch (err) {
-    document.getElementById("content").innerText = err.message;
     console.error("Error fetching data:", err);
   }
 }
