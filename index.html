@@ -51,8 +51,7 @@
             </div>
             <div class="col-12">
               <label for="excelFile" class="form-label excel-file-input"
-                >Upload Excel Sheet
-  </label
+                >Upload Excel Sheet</label
               >
               <input
                 class="form-control form-control-lg"
@@ -80,6 +79,22 @@
                 >
                   Authorize
                 </button>
+              </div>
+            </div>
+            <div class="col-12">
+              <div
+                class="form-floating company-select-form-floating sheet-select-form-floating"
+              >
+                <select
+                  class="form-select company-select sheet-select"
+                  id="sheetSelect"
+                  aria-label="Sheet Select"
+                >
+                  <option data-display="sheetSelect" value="" disabled selected>
+                    Select a sheet
+                  </option>
+                </select>
+                <label for="floatingSelect">Select a sheet</label>
               </div>
             </div>
             <div class="col-12">
@@ -136,10 +151,11 @@
                 class="form-control amount-input"
                 placeholder="Enter the amount"
                 aria-label="Amount"
+                disabled
                 id="amount"
               />
             </div>
-            <div class="col-12">
+            <div id="employeeFileWrap" class="col-12">
               <label for="employeeFile" class="form-label excel-file-input"
                 >Upload Names List (.xls, .xlsx) [Only For Excel Sheet]</label
               >
@@ -150,7 +166,7 @@
                 accept=".xls, .xlsx"
               />
             </div>
-            <div class="col-12">
+            <div id="employeeSelectWrap" class="col-12">
               <div class="form-floating company-select-form-floating">
                 <select
                   class="form-select company-select"
@@ -167,6 +183,7 @@
                   class="form-control"
                   placeholder="Leave a comment here"
                   id="comment"
+                  disabled
                   style="height: 80px"
                 ></textarea>
                 <label for="comment">Comments</label>
@@ -195,13 +212,16 @@
             <div class="col-12"><h3 class="text-center">OR</h3></div>
             <div class="col-12">
               <label for="companyListFile" class="form-label excel-file-input"
-                >Upload Company List (.xls, .xlsx)</label
+                >Upload Company List (.xls, .xlsx, .csv)
+                <p class="text-danger mb-0 ms-2 d-inline-block">
+                  CSV recommended
+                </p></label
               >
               <input
                 class="form-control form-control-lg"
                 type="file"
                 id="companyListFile"
-                accept=".xls, .xlsx"
+                accept=".xls, .xlsx, .csv"
               />
             </div>
             <div class="col-12">
@@ -217,7 +237,7 @@
           <div class="row g-4 justify-content-between pb-4">
             <div class="col-12">
               <button
-                class="btn btn-primary btn-lg custom-btn d-block ms-auto"
+                class="btn btn-primary download-btn btn-lg custom-btn ms-auto"
                 id="downloadButton"
                 type="button"
               >
@@ -241,6 +261,9 @@
                   </tbody>
                 </table>
               </div>
+            </div>
+            <div class="col-12">
+              <div id="pagination"></div>
             </div>
             <div class="col-12">
               <button
