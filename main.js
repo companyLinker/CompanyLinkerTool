@@ -9,6 +9,7 @@ const affiliatedRadio = document.getElementById("affiliatedRadio");
 const nonAffiliatedRadio = document.getElementById("nonAffiliatedRadio");
 const employeeFileInput = document.getElementById("employeeFile");
 const employeeSelect = document.getElementById("employeeSelect");
+const companyListFileInput = document.getElementById("companyListFile");
 const commentTextarea = document.getElementById("comment");
 
 let workbook,
@@ -17,61 +18,70 @@ let workbook,
   rowCompanies = [],
   isGoogleSheetData = false;
 
-async function getSheetId(spreadsheetId) {
-  try {
-    const response = await gapi.client.sheets.spreadsheets.get({
-      spreadsheetId: spreadsheetId,
-    });
-
-    // Log the sheets to find the correct sheetId
-    console.log("Sheets in the spreadsheet:", response.result.sheets);
-
-    // Assume you want the first sheet, you can modify this logic as needed
-    const sheet = response.result.sheets[0]; // Get the first sheet
-    return sheet.properties.sheetId; // Return the sheetId
-  } catch (error) {
-    console.error("Error fetching sheet ID:", error);
-    throw error; // Rethrow the error for handling elsewhere
-  }
-}
-
 async function fillDiagonalCells(sheetData, spreadsheetId) {
   if (isGoogleSheetData) {
-    const sheetId = await getSheetId(spreadsheetId); // Get the correct sheet ID
-    const requests = []; // Array to hold the requests for batchUpdate
-    const range = sheetData.length; // Assuming square matrix for diagonal
+    try {
+      // Fetch the spreadsheet metadata to get the sheets
+      const spreadsheetResponse = await gapi.client.sheets.spreadsheets.get({
+        spreadsheetId: spreadsheetId,
+      });
 
-    // Loop through the diagonal elements and color specific indices
-    for (let index = 0; index <= range; index++) {
-      // Skip coloring for index 1 (Facebook)
-      if (index === 0) continue;
+      const sheets = spreadsheetResponse.result.sheets;
 
-      const request = {
-        repeatCell: {
-          range: {
-            sheetId: sheetId, // Use the correct sheet ID
-            startRowIndex: index,
-            endRowIndex: index + 1,
-            startColumnIndex: index,
-            endColumnIndex: index + 1,
-          },
-          cell: {
-            userEnteredFormat: {
-              backgroundColor: {
-                red: 1, // Full red
-                green: 0,
-                blue: 0,
+      // Get the currently selected sheet name from the dropdown
+      const sheetSelect = document.getElementById("sheetSelect");
+      const sheetName =
+        sheetSelect.value || (sheets[0] && sheets[0].properties.title);
+
+      if (!sheetName) {
+        console.error("No sheet name available");
+        return;
+      }
+
+      // Find the sheet with the selected name
+      const selectedSheet = sheets.find(
+        (sheet) => sheet.properties.title === sheetName
+      );
+
+      if (!selectedSheet) {
+        console.error("Selected sheet not found");
+        return;
+      }
+
+      const sheetId = selectedSheet.properties.sheetId; // Use the selected sheet's ID
+      const requests = []; // Array to hold the requests for batchUpdate
+      const range = sheetData.length; // Assuming square matrix for diagonal
+
+      // Loop through the diagonal elements and color specific indices
+      for (let index = 0; index <= range; index++) {
+        // Skip coloring for index 1 (Facebook)
+        if (index === 0) continue;
+
+        const request = {
+          repeatCell: {
+            range: {
+              sheetId: sheetId, // Use the selected sheet's ID
+              startRowIndex: index,
+              endRowIndex: index + 1,
+              startColumnIndex: index,
+              endColumnIndex: index + 1,
+            },
+            cell: {
+              userEnteredFormat: {
+                backgroundColor: {
+                  red: 1, // Full red
+                  green: 0,
+                  blue: 0,
+                },
               },
             },
+            fields: "userEnteredFormat(backgroundColor)",
           },
-          fields: "userEnteredFormat(backgroundColor)",
-        },
-      };
-      requests.push(request);
-    }
+        };
+        requests.push(request);
+      }
 
-    // Make the batchUpdate request to apply the formatting
-    try {
+      // Make the batchUpdate request to apply the formatting
       await gapi.client.sheets.spreadsheets.batchUpdate({
         spreadsheetId: spreadsheetId,
         resource: {
@@ -80,7 +90,7 @@ async function fillDiagonalCells(sheetData, spreadsheetId) {
       });
       console.log("Diagonal cells filled with red color, skipping Facebook.");
     } catch (error) {
-      console.error("Error applying cell formatting:", error);
+      console.error("Error applying diagonal cell formatting:", error);
     }
   } else {
     companyList.forEach((company, index) => {
@@ -173,6 +183,7 @@ async function fetchUserEmail() {
 
   return response.result.emailAddresses[0].value;
 }
+
 // Function to format the comment with the selected employee
 function formatComment(comment, selectedEmployee) {
   if (isGoogleSheetData) {
@@ -198,86 +209,164 @@ function formatComment(comment, selectedEmployee) {
 // Function to populate the data table
 async function populateDataTable(selectedRowCompany, selectedColumnCompany) {
   const dataBody = document.getElementById("dataBody");
-  const fragment = document.createDocumentFragment();
+  const paginationContainer = document.getElementById("pagination");
+  const itemsPerPage = 50; // Configurable number of items per page
+  let currentPage = 1;
   const rows = {};
-  const existingRows = Array.from(dataBody.rows);
 
-  // Check if the data is coming from a Google Sheet
-  if (isGoogleSheetData) {
-    const sheetUrl = document.getElementById("googleSheetUrl").value;
-    const sheetIdMatch = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
+  // Create pagination container if it doesn't exist
+  if (!paginationContainer) {
+    const paginationDiv = document.createElement("div");
+    paginationDiv.id = "paginationContainer";
+    paginationDiv.className = "pagination-container";
+    dataBody.parentNode.insertBefore(paginationDiv, dataBody.nextSibling);
+  }
 
-    if (!sheetIdMatch) {
-      return;
-    }
+  // Performance optimization: Use a generator function for data retrieval
+  async function* dataGenerator() {
+    if (isGoogleSheetData) {
+      const sheetUrl = document.getElementById("googleSheetUrl").value;
+      const sheetIdMatch = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
 
-    const spreadsheetId = sheetIdMatch[1]; // Extracted spreadsheet ID
-
-    try {
-      // Step 1: Get the spreadsheet metadata to retrieve sheet names
-      const spreadsheetResponse = await gapi.client.sheets.spreadsheets.get({
-        spreadsheetId: spreadsheetId,
-      });
-
-      const sheets = spreadsheetResponse.result.sheets;
-      if (!sheets || sheets.length === 0) {
+      if (!sheetIdMatch) {
         return;
       }
 
-      // Step 2: Select the first sheet name (or any other logic to choose a sheet)
-      const sheetName = sheets[0].properties.title; // Get the title of the first sheet
-      console.log("Using sheet name:", sheetName);
+      const spreadsheetId = sheetIdMatch[1];
 
-      // Step 3: Fetch data from the selected sheet
-      const response = await gapi.client.sheets.spreadsheets.values.get({
-        spreadsheetId: spreadsheetId,
-        range: sheetName, // Use the dynamic sheet name
-      });
+      try {
+        const spreadsheetResponse = await gapi.client.sheets.spreadsheets.get({
+          spreadsheetId: spreadsheetId,
+        });
 
-      const range = response.result;
-      if (!range || !range.values || range.values.length === 0) {
-        return;
+        const sheets = spreadsheetResponse.result.sheets;
+        if (!sheets || sheets.length === 0) {
+          return;
+        }
+
+        const sheetName = sheetSelect.value || sheets[0].properties.title;
+        const response = await gapi.client.sheets.spreadsheets.values.get({
+          spreadsheetId: spreadsheetId,
+          range: sheetName,
+        });
+
+        const range = response.result;
+        if (!range || !range.values || range.values.length === 0) {
+          return;
+        }
+
+        const firstSheetData = range.values;
+
+        const companyList = firstSheetData[0]
+          .slice(1)
+          .filter(
+            (company) =>
+              company &&
+              ![
+                "Total Affiliated",
+                "Total Non-Affiliated",
+                "Total",
+                "Grand Total",
+              ].includes(company) &&
+              !String(company).includes("Total")
+          );
+
+        const rowCompanies = firstSheetData
+          .slice(1)
+          .map((row) => row[0])
+          .filter(
+            (company) =>
+              company &&
+              ![
+                "Total Affiliated",
+                "Total Non-Affiliated",
+                "Total",
+                "Grand Total",
+              ].includes(company) &&
+              !String(company).includes("Total")
+          );
+
+        for (let rowIndex = 1; rowIndex < firstSheetData.length; rowIndex++) {
+          const row = firstSheetData[rowIndex];
+          const rowCompany = row[0];
+
+          // Skip Total rows and apply row company filter
+          if (
+            !rowCompany ||
+            [
+              "Total Affiliated",
+              "Total Non-Affiliated",
+              "Total",
+              "Grand Total",
+            ].includes(rowCompany) ||
+            String(rowCompany).includes("Total") ||
+            (selectedRowCompany && rowCompany !== selectedRowCompany)
+          ) {
+            continue;
+          }
+
+          for (let columnIndex = 1; columnIndex < row.length; columnIndex++) {
+            const columnCompany = firstSheetData[0][columnIndex];
+
+            // Skip Total columns and apply column company filter
+            if (
+              !columnCompany ||
+              [
+                "Total Affiliated",
+                "Total Non-Affiliated",
+                "Total",
+                "Grand Total",
+              ].includes(columnCompany) ||
+              String(columnCompany).includes("Total") ||
+              (selectedColumnCompany && columnCompany !== selectedColumnCompany)
+            ) {
+              continue;
+            }
+
+            let amount = row[columnIndex];
+
+            // Normalize amount
+            if (typeof amount === "string") {
+              amount = amount.replace(/[$,]/g, "");
+              if (amount.startsWith("(") && amount.endsWith(")")) {
+                amount = `(${amount.slice(1, -1)})`;
+              }
+            }
+
+            // Validate amount
+            if (
+              amount !== null &&
+              amount !== undefined &&
+              String(amount).trim() !== "" &&
+              rowCompany !== columnCompany
+            ) {
+              const key = `${columnCompany}-${rowCompany}`;
+              yield { columnCompany, rowCompany, amount, key };
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching data:", err);
       }
+    } else {
+      // Excel JS library logic
+      const headerRow = worksheet.getRow(1);
+      const columnCount = headerRow.values.length;
 
-      // Store data in the desired format
-      const allSheetsData = [range]; // Wrapping it in an array to mimic your original structure
-      const firstSheetData = allSheetsData[0].values;
+      for (let rowIndex = 2; rowIndex <= worksheet.rowCount; rowIndex++) {
+        const row = worksheet.getRow(rowIndex);
+        const rowCompany = row.getCell(1).value;
 
-      // Declare new variables instead of reassigning constants
-      const companyList = firstSheetData[0].slice(1); // First row (header)
-      const rowCompanies = firstSheetData.slice(1).map((row) => row[0]); // First column (row companies)
-
-      // Output the results to the console for debugging
-      console.log("Company List:", companyList);
-      console.log("Row Companies:", rowCompanies);
-
-      // Populate rows based on the fetched data
-      for (let rowIndex = 1; rowIndex < firstSheetData.length; rowIndex++) {
-        const row = firstSheetData[rowIndex];
-        const rowCompany = row[0];
-
-        // If a specific row company is selected and it doesn't match, skip this row
+        // Skip rows based on filters
         if (selectedRowCompany && rowCompany !== selectedRowCompany) {
           continue;
         }
 
-        for (let columnIndex = 1; columnIndex < row.length; columnIndex++) {
-          let amount = row[columnIndex];
-          const columnCompany = companyList[columnIndex - 1]; // Adjust index for column company
+        for (let columnIndex = 2; columnIndex <= columnCount; columnIndex++) {
+          let amount = row.getCell(columnIndex).value;
+          const columnCompany = headerRow.getCell(columnIndex).value;
 
-          // Keep the value as is if it is formatted in parentheses
-          if (typeof amount === "string") {
-            // Remove any dollar signs and commas
-            amount = amount.replace(/[$,]/g, ""); // Remove $, and commas
-
-            // Check if the value is formatted as (value)
-            if (amount.startsWith("(") && amount.endsWith(")")) {
-              // Keep the amount as a string with parentheses
-              amount = `(${amount.slice(1, -1)})`; // Retain the format (value)
-            }
-          }
-
-          // If a specific column company is selected and it doesn't match, skip this column
+          // Skip columns based on filters
           if (
             selectedColumnCompany &&
             columnCompany !== selectedColumnCompany
@@ -285,145 +374,204 @@ async function populateDataTable(selectedRowCompany, selectedColumnCompany) {
             continue;
           }
 
-          // Check if there is a valid amount and row and column companies are not the same
+          // Normalize amount
+          if (typeof amount === "string") {
+            amount = amount.replace(/[$,]/g, "");
+            if (amount.startsWith("(") && amount.endsWith(")")) {
+              amount = `(${amount.slice(1, -1)})`;
+            }
+          }
+
+          // Validate amount
           if (
             amount !== null &&
             amount !== undefined &&
-            amount.trim() !== "" && // Check for empty string
-            rowCompany !== columnCompany // Ensure row and column companies are not the same
+            String(amount).trim() !== "" &&
+            !isNaN(parseFloat(String(amount).trim())) &&
+            rowCompany !== columnCompany
           ) {
             const key = `${columnCompany}-${rowCompany}`;
-            if (!rows[key]) {
-              rows[key] = {
-                columnCompany,
-                rowCompany,
-                amounts: [amount],
-              };
-            } else {
-              rows[key].amounts.push(amount);
-            }
-          }
-        }
-      }
-    } catch (err) {
-      return;
-    }
-  } else {
-    // Existing Excel JS library logic goes here
-    const headerRow = worksheet.getRow(1);
-    const columnCount = headerRow.values.length;
-
-    for (let rowIndex = 2; rowIndex <= worksheet.rowCount; rowIndex++) {
-      const row = worksheet.getRow(rowIndex);
-      const rowCompany = row.getCell(1).value;
-
-      // If a specific row company is selected and it doesn't match, skip this row
-      if (selectedRowCompany && rowCompany !== selectedRowCompany) {
-        continue;
-      }
-
-      for (let columnIndex = 2; columnIndex <= columnCount; columnIndex++) {
-        let amount = row.getCell(columnIndex).value;
-        const columnCompany = headerRow.getCell(columnIndex).value;
-
-        // Keep the value as is if it is formatted in parentheses
-        if (typeof amount === "string") {
-          amount = amount.replace(/[$,]/g, ""); // Remove $, and commas
-          if (amount.startsWith("(") && amount.endsWith(")")) {
-            // Keep the amount as a string with parentheses
-            amount = `(${amount.slice(1, -1)})`; // Retain the format (value)
-          }
-        }
-
-        // If a specific column company is selected and it doesn't match, skip this column
-        if (selectedColumnCompany && columnCompany !== selectedColumnCompany) {
-          continue;
-        }
-
-        // Check if there is a valid amount and row and column companies are not the same
-        if (
-          amount !== null &&
-          amount !== undefined &&
-          String(amount).trim() !== "" &&
-          !isNaN(parseFloat(String(amount).trim())) &&
-          rowCompany !== columnCompany
-        ) {
-          const key = `${columnCompany}-${rowCompany}`;
-          if (!rows[key]) {
-            rows[key] = {
-              columnCompany,
-              rowCompany,
-              amounts: [amount],
-            };
-          } else {
-            rows[key].amounts.push(amount);
+            yield { columnCompany, rowCompany, amount, key };
           }
         }
       }
     }
   }
 
-  // Remove any existing rows with the same company and amount
-  existingRows.forEach((row) => {
-    row.remove();
-  });
+  // Collect and aggregate data
+  const aggregatedRows = {};
+  for await (const item of dataGenerator()) {
+    if (!aggregatedRows[item.key]) {
+      aggregatedRows[item.key] = {
+        columnCompany: item.columnCompany,
+        rowCompany: item.rowCompany,
+        amounts: [item.amount],
+      };
+    } else {
+      aggregatedRows[item.key].amounts.push(item.amount);
+    }
+  }
 
-  // Add the new rows to the fragment
-  Object.keys(rows).forEach((key) => {
-    const row = rows[key];
-    const totalAmount = row.amounts.join(", "); // Join amounts as a string for display
+  // Pagination function
+  function renderPage(page) {
+    // Store aggregatedRows in a global or accessible variable
+    window.currentAggregatedRows = aggregatedRows;
 
-    // Define rowElement here
-    const rowElement = document.createElement("tr");
-    rowElement.innerHTML = `
+    dataBody.innerHTML = ""; // Clear existing rows
+    const keys = Object.keys(aggregatedRows);
+    const totalItems = keys.length;
+    const totalPages = Math.ceil(totalItems / itemsPerPage);
+
+    const startIndex = (page - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+
+    // Render current page items
+    const pageKeys = keys.slice(startIndex, endIndex);
+    pageKeys.forEach((key) => {
+      const row = aggregatedRows[key];
+      const totalAmount = row.amounts.join(", ");
+
+      const rowElement = document.createElement("tr");
+      rowElement.innerHTML = `
       <td>${row.columnCompany}</td>
       <td>${row.rowCompany}</td>
-      <td>${totalAmount}</td> <!-- Display the total amount -->
+      <td>${totalAmount}</td>
     `;
+      dataBody.appendChild(rowElement);
+    });
 
-    fragment.appendChild(rowElement);
-  });
+    // If no data, show message
+    if (pageKeys.length === 0) {
+      const messageRow = document.createElement("tr");
+      messageRow.innerHTML = `
+        <td colspan="3" class="text-center">No data available</td>
+      `;
+      dataBody.appendChild(messageRow);
+    }
 
-  // If no data is displayed, add a message
-  if (fragment.childNodes.length === 0) {
-    const messageRow = document.createElement("tr");
-    messageRow.innerHTML = `
-      <td colspan="3">No data available for the selected companies.</td>
-    `;
-    fragment.appendChild(messageRow);
+    // Update pagination controls
+    renderPaginationControls(page, totalPages);
   }
 
-  // Batch DOM updates
-  dataBody.innerHTML = "";
-  dataBody.appendChild(fragment);
+  // Pagination controls rendering
+  function renderPaginationControls(currentPage, totalPages) {
+    const paginationContainer = document.getElementById("pagination");
+    paginationContainer.innerHTML = "";
+
+    // Helper function to create page button
+    function createPageButton(pageNum) {
+      const pageButton = document.createElement("button");
+      pageButton.textContent = pageNum;
+      pageButton.classList.add("btn", "btn-outline-primary", "mx-1");
+      pageButton.disabled = pageNum === currentPage;
+      pageButton.addEventListener("click", () => renderPage(pageNum));
+      return pageButton;
+    }
+
+    // Helper function to create ellipsis
+    function createEllipsis() {
+      const ellipsis = document.createElement("span");
+      ellipsis.textContent = "...";
+      ellipsis.classList.add("mx-1");
+      return ellipsis;
+    }
+
+    // Previous button
+    if (currentPage > 1) {
+      const prevButton = document.createElement("button");
+      prevButton.textContent = "Previous";
+      prevButton.classList.add("btn", "btn-outline-secondary", "mx-1");
+      prevButton.addEventListener("click", () => renderPage(currentPage - 1));
+      paginationContainer.appendChild(prevButton);
+    }
+
+    // Pagination logic with smart ellipsis
+    function generatePaginationButtons() {
+      // Always show first page
+      if (currentPage > 3) {
+        paginationContainer.appendChild(createPageButton(1));
+
+        // Add first ellipsis if there's a gap
+        if (currentPage > 4) {
+          paginationContainer.appendChild(createEllipsis());
+        }
+      }
+
+      // Calculate range of page buttons to show
+      let startPage = Math.max(1, currentPage - 1);
+      let endPage = Math.min(totalPages, currentPage + 1);
+
+      // Adjust range to always show 3 buttons around current page
+      if (currentPage === 1) {
+        endPage = Math.min(3, totalPages);
+      } else if (currentPage === totalPages) {
+        startPage = Math.max(1, totalPages - 2);
+      }
+
+      // Add page buttons
+      for (let i = startPage; i <= endPage; i++) {
+        paginationContainer.appendChild(createPageButton(i));
+      }
+
+      // Add last ellipsis and last page
+      if (currentPage < totalPages - 2) {
+        if (currentPage < totalPages - 3) {
+          paginationContainer.appendChild(createEllipsis());
+        }
+        paginationContainer.appendChild(createPageButton(totalPages));
+      }
+    }
+
+    // Generate pagination buttons
+    generatePaginationButtons();
+
+    // Next button
+    if (currentPage < totalPages) {
+      const nextButton = document.createElement("button");
+      nextButton.textContent = "Next";
+      nextButton.classList.add("btn", "btn-outline-secondary", "mx-1");
+      nextButton.addEventListener("click", () => renderPage(currentPage + 1));
+      paginationContainer.appendChild(nextButton);
+    }
+  }
+
+  // Initial render
+  renderPage(currentPage);
 }
 
 document.getElementById("downloadLog").addEventListener("click", function () {
-  // Get the table element
-  const table = document.getElementById("dataTable");
+  // Use the globally stored aggregatedRows
+  const aggregatedRows = window.currentAggregatedRows || {};
 
   // Create a CSV content string
-  let csvContent = "data:text/csv;charset=utf-8,";
+  let csvContent = [];
 
   // Add table headers
-  const headers = Array.from(table.querySelectorAll("thead th"))
-    .map((header) => `"${header.textContent}"`)
-    .join(",");
-  csvContent += headers + "\n";
+  const headers = ["Column Company", "Row Company", "Amount"];
+  csvContent.push(headers);
 
-  // Add table rows
-  const rows = table.querySelectorAll("tbody tr");
-  rows.forEach((row) => {
-    const rowData = Array.from(row.querySelectorAll("td"))
-      .map((cell) => `"${cell.textContent.replace(/"/g, '""')}"`)
-      .join(",");
-    csvContent += rowData + "\n";
+  // Add all rows from aggregatedRows
+  Object.values(aggregatedRows).forEach((row) => {
+    const rowData = [
+      row.columnCompany,
+      row.rowCompany,
+      row.amounts.join(","),
+    ].map((value) => sanitizeCSVValue(value));
+    csvContent.push(rowData);
+  });
+
+  // Convert to CSV string
+  const csvString = csvContent.map((row) => row.join(",")).join("\n");
+
+  // Create a Blob with UTF-8 encoding
+  const blob = new Blob(["\uFEFF" + csvString], {
+    type: "text/csv;charset=utf-8;",
   });
 
   // Create a download link
-  const encodedUri = encodeURI(csvContent);
   const link = document.createElement("a");
-  link.setAttribute("href", encodedUri);
+  const url = URL.createObjectURL(blob);
+  link.setAttribute("href", url);
 
   // Generate filename with current date
   const currentDate = new Date();
@@ -434,20 +582,64 @@ document.getElementById("downloadLog").addEventListener("click", function () {
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
+
+  // Clean up
+  URL.revokeObjectURL(url);
 });
+
+// Helper function to sanitize CSV values
+function sanitizeCSVValue(value) {
+  if (value == null) return '""';
+
+  // Convert to string and trim
+  let sanitizedValue = String(value).trim();
+
+  // Escape double quotes by doubling them
+  sanitizedValue = sanitizedValue.replace(/"/g, '""');
+
+  // Normalize Unicode characters
+  sanitizedValue = sanitizedValue.normalize("NFC");
+
+  // If the value contains a comma, newline, or double quote, wrap in quotes
+  if (/[",\n\r]/.test(sanitizedValue)) {
+    sanitizedValue = `"${sanitizedValue}"`;
+  }
+
+  return sanitizedValue;
+}
 
 // Event listeners for dropdowns to update the data table dynamically
 companyRowSelect.addEventListener("change", function () {
   const rowCompany = companyRowSelect.value;
   const columnCompany = companyColumnSelect.value;
   populateDataTable(rowCompany, columnCompany);
+  toggleInputs(rowCompany, columnCompany);
 });
 
 companyColumnSelect.addEventListener("change", function () {
   const rowCompany = companyRowSelect.value;
   const columnCompany = companyColumnSelect.value;
   populateDataTable(rowCompany, columnCompany);
+  toggleInputs(rowCompany, columnCompany);
 });
+
+function toggleInputs(rowCompany, columnCompany) {
+  const amountInput = document.getElementById("amount");
+
+  if (
+    rowCompany !== "Select a company" &&
+    columnCompany !== "Select a company" &&
+    rowCompany !== columnCompany &&
+    rowCompany !== "" &&
+    columnCompany !== ""
+  ) {
+    commentTextarea.disabled = false;
+    amountInput.disabled = false;
+  } else {
+    commentTextarea.disabled = true;
+    amountInput.disabled = true;
+  }
+}
 
 var colOptions = { searchable: true };
 let colSelect = NiceSelect.bind(companyColumnSelect, colOptions);
@@ -457,6 +649,11 @@ let rowSelect = NiceSelect.bind(companyRowSelect, rowOptions);
 
 // Function to read and parse the uploaded Excel file
 excelFileInput.addEventListener("change", async function (event) {
+  isGoogleSheetData = false;
+  downloadButton.style.display = "block";
+  excelFile.setAttribute("disabled", false);
+  document.getElementById("employeeFileWrap").style.display = "block";
+  document.getElementById("employeeSelectWrap").style.display = "block";
   // Create loading overlay
   const loadingOverlay = document.createElement("div");
   loadingOverlay.innerHTML = `
@@ -556,7 +753,7 @@ excelFileInput.addEventListener("change", async function (event) {
       updateProgress("Almost done...", 95);
 
       // Fill diagonal cells for matching companies
-      await fillDiagonalCells(companyList, spreadsheetId);
+      await fillDiagonalCells(companyList);
 
       // Update progress - Complete
       updateProgress("Processing complete", 100);
@@ -644,12 +841,12 @@ async function findNullifiableTransactionsExcel(worksheet) {
   // Function to extract transactions from Excel worksheet
   function extractTransactions(worksheet) {
     const transactionMap = new Map();
-    const headerRow = worksheet.getRow(1);
-    const headerCompanies = headerRow.values.slice(1); // Skip first empty cell
+    const headerRow = worksheet?.getRow(1);
+    const headerCompanies = headerRow?.values.slice(1); // Skip first empty cell
 
     // Iterate through rows starting from row 2
-    for (let rowIndex = 2; rowIndex <= worksheet.rowCount; rowIndex++) {
-      const row = worksheet.getRow(rowIndex);
+    for (let rowIndex = 2; rowIndex <= worksheet?.rowCount; rowIndex++) {
+      const row = worksheet?.getRow(rowIndex);
       const fromCompany = row.getCell(1).value;
 
       // Iterate through columns starting from column 2
@@ -753,12 +950,12 @@ async function findNullifiableTransactionsExcel(worksheet) {
     // Add this section at the end of the highlighting logic, before the console.log statements
     // Color diagonal cells red
     companyList.forEach((company, index) => {
-      const cell = worksheet.getCell(
+      const cell = worksheet?.getCell(
         `${indexToColumnLetter(index + 1)}${index + 1}`
       );
 
       // Preserve original border style
-      const originalBorder = cell.border || {
+      const originalBorder = cell?.border || {
         top: { style: "thin", color: { argb: "FF000000" } },
         left: { style: "thin", color: { argb: "FF000000" } },
         bottom: { style: "thin", color: { argb: "FF000000" } },
@@ -1005,6 +1202,12 @@ async function findNullifiableTransactions() {
   }
 
   function findNullifiablePairs(transactionMap) {
+    if (!transactionMap || transactionMap.size === 0) {
+      return {
+        nullifiablePairs: [],
+        nonNullifiablePairs: [],
+      };
+    }
     const nullifiablePairsLocal = [];
     const nonNullifiablePairs = [];
     const processedPairs = new Set(); // To avoid duplicate processing
@@ -1126,7 +1329,8 @@ async function findNullifiableTransactions() {
         return;
       }
 
-      const sheetName = sheets[0].properties.title;
+      const sheetSelect = document.getElementById("sheetSelect");
+      const sheetName = sheetSelect.value || sheets[0].properties.title;
       const response = await gapi.client.sheets.spreadsheets.values.get({
         spreadsheetId: spreadsheetId,
         range: sheetName,
@@ -1171,8 +1375,12 @@ async function findNullifiableTransactions() {
       });
 
       const sheets = spreadsheetResponse.result.sheets;
-      const sheetId = sheets[0].properties.sheetId;
-
+      const sheetSelect = document.getElementById("sheetSelect");
+      const sheetName = sheetSelect.value || sheets[0].properties.title;
+      const selectedSheet = sheets.find(
+        (sheet) => sheet.properties.title === sheetName
+      );
+      const sheetId = selectedSheet.properties.sheetId;
       // Combine all pairs for comprehensive highlighting
       const allPairRequests = [
         ...nullifiablePairs.flatMap(({ companyA, companyB }) => [
@@ -1325,49 +1533,82 @@ function nullifyGoogleSheetAmounts() {
 
   const spreadsheetId = sheetIdMatch[1];
 
+  // Add totals to the selected sheet
+  addTotalsToGoogleSheet(spreadsheetId);
+
   // Use the nullifiablePairs from previous processing
   if (!nullifiablePairs || nullifiablePairs.length === 0) {
     alert("No nullifiable amounts found.");
     return;
   }
 
-  // Prepare batch update requests to set nullifiable amounts to zero
-  const nullifyRequests = nullifiablePairs.flatMap(({ companyA, companyB }) => [
-    {
-      updateCells: {
-        range: {
-          sheetId: sheets[0].properties.sheetId,
-          startRowIndex: headers.findIndex((c) => c === companyA) + 1,
-          endRowIndex: headers.findIndex((c) => c === companyA) + 2,
-          startColumnIndex: headers.findIndex((c) => c === companyB) + 1,
-          endColumnIndex: headers.findIndex((c) => c === companyB) + 2,
-        },
-        rows: [{ values: [{ userEnteredValue: { numberValue: 0 } }] }],
-        fields: "userEnteredValue",
-      },
-    },
-    {
-      updateCells: {
-        range: {
-          sheetId: sheets[0].properties.sheetId,
-          startRowIndex: headers.findIndex((c) => c === companyB) + 1,
-          endRowIndex: headers.findIndex((c) => c === companyB) + 2,
-          startColumnIndex: headers.findIndex((c) => c === companyA) + 1,
-          endColumnIndex: headers.findIndex((c) => c === companyA) + 2,
-        },
-        rows: [{ values: [{ userEnteredValue: { numberValue: 0 } }] }],
-        fields: "userEnteredValue",
-      },
-    },
-  ]);
-
-  // Execute batch update to set nullifiable amounts to zero
+  // Get the spreadsheet metadata to retrieve sheet names
   gapi.client.sheets.spreadsheets
-    .batchUpdate({
+    .get({
       spreadsheetId: spreadsheetId,
-      resource: { requests: nullifyRequests },
     })
-    .then(async (response) => {
+    .then(async (spreadsheetResponse) => {
+      const sheets = spreadsheetResponse.result.sheets;
+      const sheetSelect = document.getElementById("sheetSelect");
+      const sheetName = sheetSelect.value || sheets[0].properties.title;
+      const selectedSheet = sheets.find(
+        (sheet) => sheet.properties.title === sheetName
+      );
+      const sheetId = selectedSheet.properties.sheetId;
+
+      // Fetch the current sheet data to get headers
+      const response = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: spreadsheetId,
+        range: sheetName,
+      });
+
+      const range = response.result;
+      if (!range || !range.values || range.values.length === 0) {
+        throw new Error("No data found in the selected sheet");
+      }
+
+      // Use the headers from the current sheet
+      const headers = range.values[0].slice(1);
+
+      // Prepare batch update requests to set nullifiable amounts to zero
+      const nullifyRequests = nullifiablePairs.flatMap(
+        ({ companyA, companyB }) => [
+          {
+            updateCells: {
+              range: {
+                sheetId: sheetId, // Use the selected sheet's ID
+                startRowIndex: headers.findIndex((c) => c === companyA) + 1,
+                endRowIndex: headers.findIndex((c) => c === companyA) + 2,
+                startColumnIndex: headers.findIndex((c) => c === companyB) + 1,
+                endColumnIndex: headers.findIndex((c) => c === companyB) + 2,
+              },
+              rows: [{ values: [{ userEnteredValue: { numberValue: 0 } }] }],
+              fields: "userEnteredValue",
+            },
+          },
+          {
+            updateCells: {
+              range: {
+                sheetId: sheetId, // Use the selected sheet's ID
+                startRowIndex: headers.findIndex((c) => c === companyB) + 1,
+                endRowIndex: headers.findIndex((c) => c === companyB) + 2,
+                startColumnIndex: headers.findIndex((c) => c === companyA) + 1,
+                endColumnIndex: headers.findIndex((c) => c === companyA) + 2,
+              },
+              rows: [{ values: [{ userEnteredValue: { numberValue: 0 } }] }],
+              fields: "userEnteredValue",
+            },
+          },
+        ]
+      );
+
+      // Execute batch update to set nullifiable amounts to zero
+      return gapi.client.sheets.spreadsheets.batchUpdate({
+        spreadsheetId: spreadsheetId,
+        resource: { requests: nullifyRequests },
+      });
+    })
+    .then(async () => {
       // Refetch the updated sheet data and re-run nullifiable transactions check
       await findNullifiableTransactions();
       alert("Amounts nullified successfully!");
@@ -1518,33 +1759,50 @@ function updateCompanyDropdowns() {
 
   // Determine available companies for row and column selections
   let availableRowCompanies, availableColumnCompanies;
-  console.log(rowCompanies);
+
   // Find the index of the first blank row that separates affiliated and non-affiliated companies
   let blankRowIndex = rowCompanies.findIndex((company) => !company);
-  console.log(blankRowIndex, ":::blankRowIndex");
+
   if (isAffiliated) {
     // Affiliated: Show only companies that exist in both rows and columns, excluding the blank row
-    availableRowCompanies = rowCompanies
-      .slice(0)
-      .filter((company) => companyList.includes(company));
-    availableColumnCompanies = companyList; // Companies that can be columns
-  } else {
-    // Non-Affiliated: Show all companies for rows, including both affiliated and non-affiliated
-    availableRowCompanies = rowCompanies.filter(
-      (company) => company !== null && company !== undefined
+    availableRowCompanies = rowCompanies.slice(0, rowCompanies.length).filter(
+      (company) =>
+        company !== "Total Affiliated" &&
+        company !== "Total Non-Affiliated" &&
+        company !== "Grand Total" && // Exclude Grand Total
+        company !== null &&
+        company !== undefined &&
+        companyList.includes(company)
     );
-    availableColumnCompanies = companyList; // Limit columns to those in the header
+    availableColumnCompanies = companyList.filter(
+      (company) => company !== "Total" // Exclude Total column
+    ); // Companies that can be columns
+    console.log(availableRowCompanies, ":::rowCompanies");
+  } else {
+    // Non-Affiliated: Show all companies for rows, excluding Total rows and Grand Total
+    availableRowCompanies = rowCompanies.filter(
+      (company) =>
+        company !== "Total Affiliated" &&
+        company !== "Total Non-Affiliated" &&
+        company !== "Grand Total" && // Exclude Grand Total
+        company !== null &&
+        company !== undefined &&
+        company !== ""
+    );
+    availableColumnCompanies = companyList.filter(
+      (company) => company !== "Total" // Exclude Total column
+    ); // Limit columns to those in the header
   }
 
   // Populate dropdowns
   populateSelect(companyRowSelect, availableRowCompanies);
   populateSelect(companyColumnSelect, availableColumnCompanies);
+
   console.log(availableRowCompanies, ":::availableRowCompanies");
+  console.log(availableColumnCompanies, ":::availableColumnCompanies");
+
   colSelect.update();
   rowSelect.update();
-
-  // console.log("Row Companies:", availableRowCompanies);
-  // console.log("Column Companies:", availableColumnCompanies);
 }
 // Event listeners for radio buttons
 affiliatedRadio.addEventListener("change", updateCompanyDropdowns);
@@ -1606,46 +1864,287 @@ function addNewRowToTable(rowCompany, columnCompany, amount) {
   dataBody.insertBefore(newRow, dataBody.firstChild);
 }
 
+class ProgressTracker {
+  constructor(options = {}) {
+    // Dynamic delay calculation based on operation complexity
+    const calculateDelay = (baseDelay) => {
+      // Consider file size, number of companies, and operation type
+      const fileSize = options.fileSize || 0;
+      const companiesCount = options.companiesCount || 0;
+
+      // Base delay calculation with exponential backoff
+      let dynamicDelay = baseDelay;
+
+      // Adjust delay based on file size (in KB)
+      if (fileSize > 0) {
+        dynamicDelay += Math.log(fileSize) * 100;
+      }
+
+      // Adjust delay based on number of companies
+      if (companiesCount > 0) {
+        dynamicDelay += Math.sqrt(companiesCount) * 50;
+      }
+
+      // Ensure minimum and maximum delay
+      return Math.max(50, Math.min(dynamicDelay, 2000));
+    };
+
+    this.options = {
+      container: document.body,
+      showDelay: calculateDelay(250), // Dynamic show delay
+      hideDelay: calculateDelay(500), // Dynamic hide delay
+      fileSize: options.fileSize || 0,
+      companiesCount: options.companiesCount || 0,
+      ...options,
+    };
+
+    this.startTime = null;
+    this.endTime = null;
+    this.overlayElement = null;
+    this.timeoutId = null;
+  }
+
+  create() {
+    // Create a lightweight, dynamically sized overlay
+    this.overlayElement = document.createElement("div");
+    this.overlayElement.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.5);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 9999;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    `;
+
+    const progressContainer = document.createElement("div");
+    progressContainer.style.cssText = `
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      text-align: center;
+      min-width: 300px;
+      max-width: 500px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    `;
+
+    this.progressBar = document.createElement("div");
+    this.progressBar.style.cssText = `
+      width: 100%;
+      height: 10px;
+      background: #e0e0e0;
+      border-radius: 5px;
+      overflow: hidden;
+      margin-top: 10px;
+    `;
+
+    this.progressFill = document.createElement("div");
+    this.progressFill.style.cssText = `
+      width: 0%;
+      height: 100%;
+      background: #4CAF50;
+      transition: width 0.3s ease;
+    `;
+
+    this.messageElement = document.createElement("p");
+    this.messageElement.style.margin = "10px 0";
+
+    this.detailElement = document.createElement("p");
+    this.detailElement.style.fontSize = "0.8em";
+    this.detailElement.style.color = "#666";
+
+    this.progressBar.appendChild(this.progressFill);
+    progressContainer.appendChild(this.messageElement);
+    progressContainer.appendChild(this.progressBar);
+    progressContainer.appendChild(this.detailElement);
+
+    this.overlayElement.appendChild(progressContainer);
+  }
+
+  start() {
+    // Only create if not already created
+    if (!this.overlayElement) {
+      this.create();
+    }
+
+    this.startTime = performance.now();
+
+    // Delayed show to prevent flicker for quick operations
+    this.timeoutId = setTimeout(() => {
+      this.options.container.appendChild(this.overlayElement);
+      // Force reflow to enable transition
+      this.overlayElement.offsetWidth;
+      this.overlayElement.style.opacity = "1";
+    }, this.options.showDelay);
+
+    return this;
+  }
+
+  update(options = {}) {
+    if (!this.overlayElement) return this;
+
+    const { progress = 0, message = "", detail = "" } = options;
+
+    // Update progress bar
+    requestAnimationFrame(() => {
+      this.progressFill.style.width = `${Math.min(
+        100,
+        Math.max(0, progress)
+      )}%`;
+
+      if (message) {
+        this.messageElement.textContent = message;
+      }
+
+      if (detail) {
+        this.detailElement.textContent = detail;
+      }
+    });
+
+    return this;
+  }
+
+  success(message = "Operation completed successfully") {
+    this.update({
+      progress: 100,
+      message: message,
+      detail: "",
+    });
+
+    this.end(true);
+    return this;
+  }
+
+  error(message = "Operation failed") {
+    this.progressFill.style.background = "#FF6B6B";
+    this.update({
+      progress: 100,
+      message: message,
+      detail: "",
+    });
+
+    this.end(false);
+    return this;
+  }
+
+  end(success = true) {
+    // Clear any pending show timeout
+    if (this.timeoutId) {
+      clearTimeout(this.timeoutId);
+    }
+
+    this.endTime = performance.now();
+
+    // Fade out and remove
+    if (this.overlayElement) {
+      this.overlayElement.style.opacity = "0";
+
+      setTimeout(() => {
+        if (this.overlayElement && this.overlayElement.parentNode) {
+          this.overlayElement.parentNode.removeChild(this.overlayElement);
+        }
+        this.overlayElement = null;
+      }, this.options.hideDelay);
+    }
+
+    return success;
+  }
+}
+
 // Add new company to both row and column
 async function addCompany() {
-  const companyListFileInput = document.getElementById("companyListFile");
   const file = companyListFileInput.files[0];
 
   if (file) {
-    // File upload logic
     try {
+      // Calculate file size and estimate companies
+      const fileSize = file ? file.size / 1024 : 0; // Size in KB
+      const estimatedCompaniesCount =
+        fileSize > 0
+          ? Math.ceil(fileSize / 10) // Rough estimate: 1 company per 10 KB
+          : 0;
+
+      // Create progress tracker with dynamic delays
+      const progressTracker = new ProgressTracker({
+        fileSize: fileSize,
+        companiesCount: estimatedCompaniesCount,
+      });
+
+      // Start tracking with dynamic configuration
+      progressTracker.start().update({
+        progress: 10,
+        message: "Preparing to add companies",
+        detail: `File size: ${fileSize.toFixed(
+          2
+        )} KB, Estimated companies: ${estimatedCompaniesCount}`,
+      });
       const reader = new FileReader();
       reader.onload = async (e) => {
         const data = new Uint8Array(e.target.result);
-
-        // Create a new workbook instead of overwriting the global one
-        const newWorkbook = new ExcelJS.Workbook();
-        await newWorkbook.xlsx.load(data);
-
-        const newWorksheet = newWorkbook.worksheets[0];
         const companies = [];
 
-        newWorksheet.eachRow((row, rowNumber) => {
-          if (rowNumber >= 1) {
-            const companyName = row.getCell(1).value;
-            if (companyName && typeof companyName === "string") {
-              companies.push(companyName.trim());
-            }
-          }
+        progressTracker.update({
+          progress: 30,
+          message: "Processing file",
+          detail: `Parsing ${file.name}, Size: ${fileSize.toFixed(2)} KB`,
         });
 
-        // const companies = companies.filter(
-        //   (company) =>
-        //     !companyList.includes(company) && !rowCompanies.includes(company)
-        // );
+        // Check file extension
+        const fileName = file.name.toLowerCase();
+        const fileExtension = fileName.split(".").pop();
 
-        // Filter out existing companies
-        const uniqueNewCompanies = companies.filter(
-          (company) =>
-            !companyList.includes(company) && !rowCompanies.includes(company)
-        );
+        if (fileExtension === "xlsx") {
+          // Excel file processing
+          const newWorkbook = new ExcelJS.Workbook();
+          await newWorkbook.xlsx.load(data);
 
-        // Check for existing companies
+          const newWorksheet = newWorkbook.worksheets[0];
+          newWorksheet.eachRow((row, rowNumber) => {
+            if (rowNumber >= 1) {
+              const companyName = row.getCell(1).value;
+              if (companyName) {
+                // Normalize the company name to handle different types of input
+                const normalizedName = normalizeCompanyName(companyName);
+                if (normalizedName) {
+                  companies.push(normalizedName);
+                }
+              }
+            }
+          });
+        } else if (fileExtension === "csv") {
+          // CSV file processing with improved encoding handling
+          const csvString = decodeCSVContent(data);
+          const rows = csvString.split(/\r?\n/);
+
+          rows.forEach((row, index) => {
+            // Skip header row if needed, or adjust based on your CSV structure
+            if (index > 0 || row.trim() !== "") {
+              // More robust CSV parsing
+              const companyName = parseCSVCell(row.split(",")[0]);
+
+              if (companyName) {
+                companies.push(companyName);
+              }
+            }
+          });
+        } else {
+          // Unsupported file type
+          alert("Please upload an Excel (.xlsx) or CSV (.csv) file.");
+          return;
+        }
+
+        progressTracker.update({
+          progress: 40,
+          message: "Finalizing",
+          detail: `Added ${companies.length} companies`,
+        });
+
+        // Filter out companies that match existing companies case-insensitively
         const existingCompanies = companies.filter(
           (company) =>
             companyList.includes(company) || rowCompanies.includes(company)
@@ -1660,6 +2159,12 @@ async function addCompany() {
           );
         }
 
+        // Filter out existing companies to get unique new companies
+        const uniqueNewCompanies = companies.filter(
+          (company) =>
+            !companyList.includes(company) && !rowCompanies.includes(company)
+        );
+
         // if (companies.length === 0) {
         //   alert("No new companies to add.");
         //   return;
@@ -1669,15 +2174,10 @@ async function addCompany() {
         if (isGoogleSheetData) {
           try {
             const sheetUrl = document.getElementById("googleSheetUrl").value;
+
             const sheetIdMatch = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
 
-            if (!sheetIdMatch) {
-              alert("Invalid Google Sheet URL.");
-              return;
-            }
-
             const spreadsheetId = sheetIdMatch[1];
-
             // Get the sheet metadata to retrieve sheet names
             const spreadsheetResponse =
               await gapi.client.sheets.spreadsheets.get({
@@ -1690,7 +2190,13 @@ async function addCompany() {
               return;
             }
 
-            const sheetName = sheets[0].properties.title;
+            const sheetSelect = document.getElementById("sheetSelect");
+            const sheetName = sheetSelect.value || sheets[0].properties.title;
+            console.log(sheetName);
+
+            const selectedSheet = sheets.find(
+              (sheet) => sheet.properties.title === sheetName
+            );
 
             // Fetch the current sheet data
             const response = await gapi.client.sheets.spreadsheets.values.get({
@@ -1716,52 +2222,106 @@ async function addCompany() {
 
             // Prepare the request for updating the sheet
             const requests = [];
-
+            progressTracker.update({
+              progress: 50,
+              message: "Finalizing",
+              detail: `Added ${companies.length} companies`,
+            });
             if (affiliatedRadio.checked) {
               // Affiliated mode: Add to column headers and rows
               const columnIndex = companyList.length + 1;
 
+              // Find the index of 'Total Affiliated' row
+              let totalAffiliatedRowIndex = -1;
+
+              // Safely check for Total Affiliated row
+              if (range && range.values && Array.isArray(range.values)) {
+                totalAffiliatedRowIndex = range.values.findIndex(
+                  (row) => row && row[0] === "Total Affiliated"
+                );
+              }
+
+              // Find the index of the Total column
+              let totalColumnIndex = -1;
+              if (
+                range &&
+                range.values &&
+                Array.isArray(range.values) &&
+                range.values[0]
+              ) {
+                totalColumnIndex = range.values[0].indexOf("Total");
+              }
+              console.log(totalColumnIndex);
+              // Determine the insertion point for new companies
+              let insertionColumnIndex;
+              if (totalColumnIndex !== -1) {
+                // If Total column exists, insert before it
+                insertionColumnIndex = totalColumnIndex;
+              } else {
+                // If Total column doesn't exist, use the original column index
+                insertionColumnIndex = columnIndex;
+              }
+
+              // Determine the insertion point for new companies in rows
+              let insertionRowIndex;
+              if (totalAffiliatedRowIndex !== -1) {
+                // If 'Total Affiliated' exists, insert before it
+                insertionRowIndex = totalAffiliatedRowIndex;
+              } else {
+                // If 'Total Affiliated' doesn't exist, use the original blankRowIndex
+                insertionRowIndex = blankRowIndex + 1;
+              }
+
+              progressTracker.update({
+                progress: 60,
+                message: "Finalizing",
+                detail: `Added ${companies.length} companies`,
+              });
               // Add header request
               requests.push({
                 insertDimension: {
                   range: {
-                    sheetId: sheets[0].properties.sheetId,
+                    sheetId: selectedSheet.properties.sheetId,
                     dimension: "COLUMNS",
-                    startIndex: columnIndex,
-                    endIndex: columnIndex + uniqueNewCompanies.length,
+                    startIndex: insertionColumnIndex,
+                    endIndex:
+                      insertionColumnIndex +
+                      (uniqueNewCompanies ? uniqueNewCompanies.length : 0),
                   },
                   inheritFromBefore: false,
                 },
               });
 
               // Set the new column header values
-              const headerValues = uniqueNewCompanies.map((company) => ({
-                userEnteredValue: { stringValue: company },
-                userEnteredFormat: {
-                  backgroundColor: {
-                    red: 1.0, // White background
-                    green: 1.0,
-                    blue: 1.0,
-                  },
-                  textFormat: {
-                    foregroundColor: {
-                      red: 0.0, // Black text
-                      green: 0.0,
-                      blue: 0.0,
+              const headerValues = (uniqueNewCompanies || []).map(
+                (company) => ({
+                  userEnteredValue: { stringValue: company },
+                  userEnteredFormat: {
+                    backgroundColor: {
+                      red: 1.0, // White background
+                      green: 1.0,
+                      blue: 1.0,
                     },
-                    bold: false,
+                    textFormat: {
+                      foregroundColor: {
+                        red: 0.0, // Black text
+                        green: 0.0,
+                        blue: 0.0,
+                      },
+                      bold: false,
+                    },
                   },
-                },
-              }));
+                })
+              );
 
               requests.push({
                 updateCells: {
                   rows: [{ values: headerValues }],
                   fields: "userEnteredValue,userEnteredFormat",
                   start: {
-                    sheetId: sheets[0].properties.sheetId,
+                    sheetId: selectedSheet.properties.sheetId,
                     rowIndex: 0, // Header row
-                    columnIndex: columnIndex,
+                    columnIndex: insertionColumnIndex,
                   },
                 },
               });
@@ -1770,17 +2330,19 @@ async function addCompany() {
               requests.push({
                 insertDimension: {
                   range: {
-                    sheetId: sheets[0].properties.sheetId,
+                    sheetId: selectedSheet.properties.sheetId,
                     dimension: "ROWS",
-                    startIndex: blankRowIndex + 1,
-                    endIndex: blankRowIndex + 1 + uniqueNewCompanies.length,
+                    startIndex: insertionRowIndex,
+                    endIndex:
+                      insertionRowIndex +
+                      (uniqueNewCompanies ? uniqueNewCompanies.length : 0),
                   },
                   inheritFromBefore: false,
                 },
               });
 
               // Set the new row values
-              const rowValues = uniqueNewCompanies.map((company) => ({
+              const rowValues = (uniqueNewCompanies || []).map((company) => ({
                 values: [
                   {
                     userEnteredValue: { stringValue: company },
@@ -1808,22 +2370,46 @@ async function addCompany() {
                   rows: rowValues,
                   fields: "userEnteredValue,userEnteredFormat",
                   start: {
-                    sheetId: sheets[0].properties.sheetId,
-                    rowIndex: blankRowIndex + 1,
+                    sheetId: selectedSheet.properties.sheetId,
+                    rowIndex: insertionRowIndex,
                     columnIndex: 0,
                   },
                 },
               });
+              progressTracker.update({
+                progress: 70,
+                message: "Finalizing",
+                detail: `Added ${companies.length} companies`,
+              });
             } else {
               // Non-affiliated mode: Add rows at the end of the second list
-              let lastNonEmptyRowIndex = rowCompanies.length;
-              for (let i = rowCompanies.length - 1; i >= 0; i--) {
+              if (
+                !range.values ||
+                range.values.length === 0 ||
+                (range.values.length === 1 &&
+                  range.values[0][0] === "Total Non-Affiliated")
+              ) {
+                alert("Please add an affiliated company first.");
+                return;
+              }
+              let totalNonAffiliatedRowIndex;
+              if (range && range.values && Array.isArray(range.values)) {
+                totalNonAffiliatedRowIndex = range.values.findIndex(
+                  (row) => row[0] === "Total Non-Affiliated"
+                );
+              }
+
+              // Find the last non-empty row index before Total Non-Affiliated
+              let lastNonEmptyRowIndex = range.values.length - 1;
+              for (let i = range.values.length - 1; i >= 0; i--) {
                 if (
-                  rowCompanies[i] !== null &&
-                  rowCompanies[i] !== undefined &&
-                  rowCompanies[i].toString().trim() !== ""
+                  range.values[i][0] !== null &&
+                  range.values[i][0] !== undefined &&
+                  range.values[i][0].toString().trim() !== "" &&
+                  (totalNonAffiliatedRowIndex === -1 ||
+                    i < totalNonAffiliatedRowIndex)
                 ) {
-                  lastNonEmptyRowIndex = i + 1;
+                  lastNonEmptyRowIndex = i;
                   break;
                 }
               }
@@ -1850,21 +2436,21 @@ async function addCompany() {
               }
               const firstBlankRowIndex = findFirstBlankRow(rowCompanies);
 
-              // Insert new rows for new companies
-              requests.push({
-                insertDimension: {
-                  range: {
-                    sheetId: sheets[0].properties.sheetId,
-                    dimension: "ROWS",
-                    startIndex: lastNonEmptyRowIndex + 1,
-                    endIndex:
-                      lastNonEmptyRowIndex + 1 + uniqueNewCompanies.length,
-                  },
-                  inheritFromBefore: false,
-                },
-              });
+              // Determine the insertion point for new companies
+              let insertionRowIndex;
+              if (totalNonAffiliatedRowIndex !== -1) {
+                // If 'Total Non-Affiliated' exists, insert before it
+                insertionRowIndex = totalNonAffiliatedRowIndex;
+              } else {
+                // If 'Total Non-Affiliated' doesn't exist, insert at the end of non-affiliated companies
+                if (firstBlankRowIndex === -1) {
+                  insertionRowIndex = lastNonEmptyRowIndex + 2;
+                } else {
+                  insertionRowIndex = lastNonEmptyRowIndex + 1;
+                }
+              }
 
-              // Set the new row values
+              // Prepare row values
               const rowValues = uniqueNewCompanies.map((company) => ({
                 values: [
                   {
@@ -1873,33 +2459,48 @@ async function addCompany() {
                 ],
               }));
 
-              if (firstBlankRowIndex === -1) {
-                requests.push({
-                  updateCells: {
-                    rows: rowValues,
-                    fields: "userEnteredValue",
-                    start: {
-                      sheetId: sheets[0].properties.sheetId,
-                      rowIndex: lastNonEmptyRowIndex + 2,
-                      columnIndex: 0,
-                    },
+              progressTracker.update({
+                progress: 60,
+                message: "Finalizing",
+                detail: `Added ${companies.length} companies`,
+              });
+              // Insert new rows for new companies
+              requests.push({
+                insertDimension: {
+                  range: {
+                    sheetId: selectedSheet.properties.sheetId,
+                    dimension: "ROWS",
+                    startIndex: insertionRowIndex,
+                    endIndex: insertionRowIndex + uniqueNewCompanies.length,
                   },
-                });
-              } else {
-                requests.push({
-                  updateCells: {
-                    rows: rowValues,
-                    fields: "userEnteredValue",
-                    start: {
-                      sheetId: sheets[0].properties.sheetId,
-                      rowIndex: lastNonEmptyRowIndex + 1,
-                      columnIndex: 0,
-                    },
+                  inheritFromBefore: false,
+                },
+              });
+
+              // Update cells
+              requests.push({
+                updateCells: {
+                  rows: rowValues,
+                  fields: "userEnteredValue",
+                  start: {
+                    sheetId: selectedSheet.properties.sheetId,
+                    rowIndex: insertionRowIndex,
+                    columnIndex: 0,
                   },
-                });
-              }
+                },
+              });
+              progressTracker.update({
+                progress: 70,
+                message: "Finalizing",
+                detail: `Added ${companies.length} companies`,
+              });
             }
 
+            progressTracker.update({
+              progress: 80,
+              message: "Finalizing",
+              detail: `Added ${companies.length} companies`,
+            });
             // Execute batch update
             await gapi.client.sheets.spreadsheets.batchUpdate({
               spreadsheetId: spreadsheetId,
@@ -1922,56 +2523,95 @@ async function addCompany() {
             updateCompanyDropdowns();
             newCompanyInput.value = "";
             await fillDiagonalCells(companyList, spreadsheetId);
+            await addTotalsToGoogleSheet(spreadsheetId);
+            progressTracker.success(
+              `Successfully processed ${companies.length} companies`
+            );
           } catch (error) {
             console.error("Error adding companies to Google Sheet:", error);
+            progressTracker.error("Failed to process the file.");
           }
         } else {
           // Existing Excel file upload logic remains unchanged
-          // Check if the company already exists
-          const existingCompanies = companies.filter(
-            (company) =>
-              companyList.includes(company) || rowCompanies.includes(company)
-          );
+          for (const newCompany of uniqueNewCompanies) {
+            if (
+              companyList.includes(newCompany.toLowerCase()) ||
+              rowCompanies.includes(newCompany.toLowerCase())
+            ) {
+              alert(`Company ${newCompany} already exists. Skipping.`);
+              continue; // Skip to the next company if it already exists
+            }
 
-          if (existingCompanies.length > 0) {
-            alert(
-              `The following companies already exist: ${existingCompanies.join(
-                ", "
-              )}`
-            );
-            return;
+            // Determine where to add the new company
+            let blankRowIndex = rowCompanies.findIndex((company, index) => {
+              return (
+                (company === null ||
+                  company === undefined ||
+                  company.toString().trim() === "") &&
+                index < rowCompanies.length - 1
+              );
+            });
+
+            if (blankRowIndex === -1) {
+              // If no second blank row, treat the end as the separator
+              blankRowIndex = rowCompanies.length;
+            }
+
+            if (affiliatedRadio.checked) {
+              // Affiliated mode: Add to column headers and rows
+              const columnIndex = companyList.length + 1;
+
+              // Add to column header if it doesn't already exist
+              if (!companyList.includes(newCompany)) {
+                worksheet.getCell(
+                  `${indexToColumnLetter(columnIndex)}1`
+                ).value = newCompany;
+                companyList.push(newCompany);
+              }
+
+              // Insert a new row before the blank row without replacing existing data
+              worksheet.spliceRows(blankRowIndex + 2, 0, [newCompany]);
+              rowCompanies.splice(blankRowIndex, 0, newCompany);
+            } else {
+              // Non-affiliated mode: Add after the last entry of the second list
+              let lastNonEmptyRowIndex = rowCompanies.length; // Start with the length of rowCompanies
+
+              // Find the last non-empty row in the second list
+              for (let i = rowCompanies.length - 1; i >= 0; i--) {
+                if (
+                  rowCompanies[i] !== null &&
+                  rowCompanies[i] !== undefined &&
+                  rowCompanies[i].toString().trim() !== ""
+                ) {
+                  lastNonEmptyRowIndex = i + 1; // Set to the next index
+                  break;
+                }
+              }
+
+              // Insert a new row after the last non-empty row
+              worksheet.spliceRows(lastNonEmptyRowIndex + 2, 0, [newCompany]);
+              rowCompanies.splice(lastNonEmptyRowIndex + 1, 0, newCompany);
+            }
           }
-
-          // Non-affiliated mode: Add companies to the end of the list
-          const lastNonEmptyRowIndex = rowCompanies.length;
-
-          // Insert new rows for each new company
-          uniqueNewCompanies.forEach((company) => {
-            worksheet.spliceRows(lastNonEmptyRowIndex + 2, 0, [company]);
-            rowCompanies.push(company);
-          });
-
-          // Update the worksheet.rowCount property if necessary
-          worksheet.rowCount = Math.max(
-            worksheet.rowCount,
-            rowCompanies.length + 1
-          );
-
-          // Recalculate indices
+          if (worksheet && typeof worksheet.rowCount !== "undefined") {
+            worksheet.rowCount = Math.max(
+              worksheet.rowCount,
+              rowCompanies.length + 1
+            );
+          } else {
+            console.warn(
+              "Worksheet is undefined or does not have a rowCount property"
+            );
+          }
+          // console.log(worksheet.rowCount, ":::worksheet.rowCount");
           companyList = worksheet.getRow(1).values.slice(1);
           rowCompanies = [];
           for (let i = 2; i <= worksheet.rowCount; i++) {
             rowCompanies.push(worksheet.getRow(i).getCell(1).value);
           }
 
-          // Populate both select boxes again
           updateCompanyDropdowns();
-
-          // Clear the input field
-          newCompanyInput.value = "";
-
-          // Fill diagonal cells for matching companies
-          await fillDiagonalCells(companyList, spreadsheetId);
+          fillDiagonalCells();
         }
       };
 
@@ -1980,10 +2620,15 @@ async function addCompany() {
       console.error("Error processing file:", error);
       alert("Failed to process the file.");
     }
+    // Clear file input
+    companyListFileInput.value = "";
   } else {
     const newCompany = newCompanyInput.value.trim();
 
-    if (companyList.includes(newCompany) || rowCompanies.includes(newCompany)) {
+    if (
+      companyList.includes(newCompany.toLowerCase()) ||
+      rowCompanies.includes(newCompany.toLowerCase())
+    ) {
       alert(`Company ${newCompany} already exists. Skipping.`);
       return;
     }
@@ -1994,10 +2639,22 @@ async function addCompany() {
     }
 
     // Check if the company already exists
+    if (companyList.includes(newCompany) || rowCompanies.includes(newCompany)) {
+      alert("This company already exists.");
+      return;
+    }
 
     // If using Google Sheet data
     if (isGoogleSheetData) {
       try {
+        const progressTracker = new ProgressTracker();
+
+        // Start tracking
+        progressTracker.start().update({
+          progress: 10,
+          message: "Preparing to add company",
+          detail: `Adding ${newCompany}`,
+        });
         // Get the sheet URL and extract spreadsheet ID
         const sheetUrl = document.getElementById("googleSheetUrl").value;
         const sheetIdMatch = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
@@ -2021,7 +2678,14 @@ async function addCompany() {
         }
 
         // Use the first sheet by default (you can modify this logic if needed)
-        const sheetName = sheets[0].properties.title;
+        const sheetName = sheetSelect.value || sheets[0].properties.title;
+        const selectedSheet = sheets.find(
+          (sheet) => sheet.properties.title === sheetName
+        );
+        if (!selectedSheet) {
+          alert("Selected sheet not found.");
+          return;
+        }
 
         // Fetch the current sheet data
         const response = await gapi.client.sheets.spreadsheets.values.get({
@@ -2047,19 +2711,62 @@ async function addCompany() {
 
         // Prepare the request for updating the sheet
         const requests = [];
-
+        progressTracker.update({
+          progress: 30,
+          message: "Preparing to add company",
+          detail: `Adding ${newCompany}`,
+        });
         if (affiliatedRadio.checked) {
           // Affiliated mode: Add to column headers and rows
           const columnIndex = companyList.length + 1;
 
+          let totalAffiliatedRowIndex = -1;
+          let totalColumnIndex = -1;
+          // Safely check for Total Affiliated row
+          if (range && range.values && Array.isArray(range.values)) {
+            totalAffiliatedRowIndex = range.values.findIndex(
+              (row) => row && row[0] === "Total Affiliated"
+            );
+
+            // Find the index of the Total column
+            totalColumnIndex = range.values[0].findIndex(
+              (header) => header === "Total"
+            );
+          }
+
+          // Determine the insertion point for new companies
+          let insertionRowIndex;
+          if (totalAffiliatedRowIndex !== -1) {
+            // If 'Total Affiliated' exists, insert before it
+            insertionRowIndex = totalAffiliatedRowIndex;
+          } else {
+            // If 'Total Affiliated' doesn't exist, use the original blankRowIndex
+            insertionRowIndex = blankRowIndex + 1;
+          }
+
+          // Determine the insertion column index
+          let insertionColumnIndex;
+          if (totalColumnIndex !== -1) {
+            // If Total column exists, insert before it
+            insertionColumnIndex = totalColumnIndex;
+          } else {
+            // If Total column doesn't exist, use the original column index
+            insertionColumnIndex = columnIndex;
+          }
+
+          progressTracker.update({
+            progress: 50,
+            message: "Finalizing",
+            detail: `Added ${newCompany}`,
+          });
           // Add header request
           requests.push({
             insertDimension: {
               range: {
-                sheetId: sheets[0].properties.sheetId,
+                sheetId: selectedSheet.properties.sheetId,
                 dimension: "COLUMNS",
-                startIndex: columnIndex, // Insert at the end of the current columns
-                endIndex: columnIndex + 1,
+                startIndex: insertionColumnIndex, // Insert at the end of the current columns
+                endIndex: insertionColumnIndex + 1,
               },
               inheritFromBefore: false,
             },
@@ -2073,15 +2780,30 @@ async function addCompany() {
                   values: [
                     {
                       userEnteredValue: { stringValue: newCompany },
+                      userEnteredFormat: {
+                        backgroundColor: {
+                          red: 1.0, // White background
+                          green: 1.0,
+                          blue: 1.0,
+                        },
+                        textFormat: {
+                          foregroundColor: {
+                            red: 0.0, // Black text
+                            green: 0.0,
+                            blue: 0.0,
+                          },
+                          bold: false,
+                        },
+                      },
                     },
                   ],
                 },
               ],
-              fields: "userEnteredValue",
+              fields: "userEnteredValue,userEnteredFormat",
               start: {
-                sheetId: sheets[0].properties.sheetId,
+                sheetId: selectedSheet.properties.sheetId,
                 rowIndex: 0, // Header row
-                columnIndex: columnIndex, // New column index
+                columnIndex: insertionColumnIndex, // New column index
               },
             },
           });
@@ -2090,10 +2812,10 @@ async function addCompany() {
           requests.push({
             insertDimension: {
               range: {
-                sheetId: sheets[0].properties.sheetId,
+                sheetId: selectedSheet.properties.sheetId,
                 dimension: "ROWS",
-                startIndex: blankRowIndex + 1,
-                endIndex: blankRowIndex + 2,
+                startIndex: insertionRowIndex,
+                endIndex: insertionRowIndex + 1,
               },
               inheritFromBefore: false,
             },
@@ -2113,27 +2835,35 @@ async function addCompany() {
               ],
               fields: "userEnteredValue",
               start: {
-                sheetId: sheets[0].properties.sheetId,
-                rowIndex: blankRowIndex + 1,
+                sheetId: selectedSheet.properties.sheetId,
+                rowIndex: insertionRowIndex,
                 columnIndex: 0,
               },
             },
           });
+          progressTracker.update({
+            progress: 70,
+            message: "Finalizing",
+            detail: `Added ${newCompany}`,
+          });
         } else {
+          await addTotalsToGoogleSheet(spreadsheetId);
+
+          // Check if the sheet is empty or there are no affiliated companies
+          if (
+            !range.values ||
+            range.values.length === 0 ||
+            (range.values.length === 1 &&
+              range.values[0][0] === "Total Non-Affiliated")
+          ) {
+            alert("Please add an affiliated company first.");
+            return;
+          }
+
           // Non-affiliated mode: Add row at the end of the second list
-          let lastNonEmptyRowIndex = rowCompanies.length; // Start with the length of rowCompanies
+          let lastNonEmptyRowIndex = range.values.length - 1; // Start with the length of rowCompanies
 
           // Find the last non-empty row in the second list
-          for (let i = rowCompanies.length - 1; i >= 0; i--) {
-            if (
-              rowCompanies[i] !== null &&
-              rowCompanies[i] !== undefined &&
-              rowCompanies[i].toString().trim() !== ""
-            ) {
-              lastNonEmptyRowIndex = i + 1; // Set to the next index
-              break;
-            }
-          }
 
           function findFirstBlankRow(uniqueNewCompanies) {
             for (let index = 0; index < uniqueNewCompanies.length; index++) {
@@ -2154,65 +2884,95 @@ async function addCompany() {
 
           // Use the function to find the first blank row
           const firstBlankRowIndex = findFirstBlankRow(rowCompanies);
+
+          // Find the index of the "Total Non-Affiliated" row
+          let totalNonAffiliatedRowIndex;
+          if (range && range.values && Array.isArray(range.values)) {
+            totalNonAffiliatedRowIndex = range.values.findIndex(
+              (row) => row[0] === "Total Non-Affiliated"
+            );
+          }
+
           console.log(firstBlankRowIndex, ":::firstBlankRowIndex");
 
-          // Insert a new row after the last non-empty row
+          // Determine the insertion point
+          let insertionRowIndex;
+          if (totalNonAffiliatedRowIndex !== -1) {
+            // If "Total Non-Affiliated" exists, insert before it
+            insertionRowIndex = totalNonAffiliatedRowIndex;
+          } else {
+            // If "Total Non-Affiliated" doesn't exist, use the last non-empty row
+            if (firstBlankRowIndex === -1) {
+              insertionRowIndex = lastNonEmptyRowIndex + 2;
+            } else {
+              insertionRowIndex = lastNonEmptyRowIndex + 1;
+            }
+          }
+          console.log(insertionRowIndex, ":::insertionRowIndex");
+
+          console.log(firstBlankRowIndex, ":::firstBlankRowIndex");
+
+          for (let i = range.values.length - 1; i >= 0; i--) {
+            if (
+              range.values[i][0] !== null &&
+              range.values[i][0] !== undefined &&
+              range.values[i][0].toString().trim() !== "" &&
+              (totalNonAffiliatedRowIndex === -1 ||
+                i < totalNonAffiliatedRowIndex)
+            ) {
+              lastNonEmptyRowIndex = i;
+              break;
+            }
+          }
+          progressTracker.update({
+            progress: 50,
+            message: "Finalizing",
+            detail: `Added ${newCompany}`,
+          });
+          // Insert a new row at the determined insertion point
           requests.push({
             insertDimension: {
               range: {
-                sheetId: sheets[0].properties.sheetId,
+                sheetId: selectedSheet.properties.sheetId,
                 dimension: "ROWS",
-                startIndex: lastNonEmptyRowIndex + 1, // Insert after the last non-empty row
-                endIndex: lastNonEmptyRowIndex + 2, // Insert one new row
+                startIndex: insertionRowIndex,
+                endIndex: insertionRowIndex + 1,
               },
               inheritFromBefore: false,
             },
           });
 
-          if (firstBlankRowIndex === -1) {
-            // Set the new row value
-            requests.push({
-              updateCells: {
-                rows: [
-                  {
-                    values: [
-                      {
-                        userEnteredValue: { stringValue: newCompany },
-                      },
-                    ],
-                  },
-                ],
-                fields: "userEnteredValue",
-                start: {
-                  sheetId: sheets[0].properties.sheetId,
-                  rowIndex: lastNonEmptyRowIndex + 2, // Set the value in the newly inserted row
-                  columnIndex: 0,
+          // Set the new row value
+          requests.push({
+            updateCells: {
+              rows: [
+                {
+                  values: [
+                    {
+                      userEnteredValue: { stringValue: newCompany },
+                    },
+                  ],
                 },
+              ],
+              fields: "userEnteredValue",
+              start: {
+                sheetId: selectedSheet.properties.sheetId,
+                rowIndex: insertionRowIndex,
+                columnIndex: 0,
               },
-            });
-          } else {
-            requests.push({
-              updateCells: {
-                rows: [
-                  {
-                    values: [
-                      {
-                        userEnteredValue: { stringValue: newCompany },
-                      },
-                    ],
-                  },
-                ],
-                fields: "userEnteredValue",
-                start: {
-                  sheetId: sheets[0].properties.sheetId,
-                  rowIndex: lastNonEmptyRowIndex + 1, // Set the value in the newly inserted row
-                  columnIndex: 0,
-                },
-              },
-            });
-          }
+            },
+          });
+          progressTracker.update({
+            progress: 70,
+            message: "Finalizing",
+            detail: `Added ${newCompany}`,
+          });
         }
-
+        progressTracker.update({
+          progress: 90,
+          message: "Finalizing",
+          detail: `Added ${newCompany}`,
+        });
         // Execute batch update
         await gapi.client.sheets.spreadsheets.batchUpdate({
           spreadsheetId: spreadsheetId,
@@ -2235,9 +2995,11 @@ async function addCompany() {
         updateCompanyDropdowns();
         newCompanyInput.value = "";
         await fillDiagonalCells(companyList, spreadsheetId);
+        await addTotalsToGoogleSheet(spreadsheetId);
+        progressTracker.success(`Successfully added ${newCompany}`);
       } catch (error) {
         console.error("Error adding company to Google Sheet:", error);
-        alert("Failed to add company: " + error.message);
+        progressTracker.error("Failed to add the company.");
       }
     } else {
       // Existing Excel file upload logic remains unchanged
@@ -2318,9 +3080,73 @@ async function addCompany() {
       newCompanyInput.value = "";
 
       // Fill diagonal cells for matching companies
-      await fillDiagonalCells(companyList, spreadsheetId);
+      await fillDiagonalCells(companyList);
+    }
+    // Clear file input
+    companyListFileInput.value = "";
+  }
+}
+
+// Helper function to normalize company names
+function normalizeCompanyName(name) {
+  // Handle different input types (string, object, etc.)
+  let companyName = " ";
+
+  if (typeof name === "string") {
+    companyName = name;
+  } else if (name && name.richText) {
+    // Handle rich text cells in Excel
+    companyName = name.richText.map((text) => text.text).join(" ");
+  } else if (name && name.text) {
+    companyName = name.text;
+  } else if (name && typeof name.toString === "function") {
+    companyName = name.toString();
+  }
+
+  // Trim and remove any problematic characters
+  return companyName
+    .trim()
+    .replace(/[\u200B-\u200D\uFEFF]/g, " ") // Remove zero-width characters
+    .replace(/�/g, " ") // Remove replacement characters
+    .normalize("NFC"); // Normalize Unicode representation
+}
+
+// Helper function to decode CSV content with multiple encodings
+function decodeCSVContent(data) {
+  const encodings = [
+    "UTF-8",
+    "Windows-1252", // Most common for Western European languages
+    "ISO-8859-1",
+    "UTF-16",
+  ];
+
+  for (const encoding of encodings) {
+    try {
+      const decoder = new TextDecoder(encoding);
+      const decodedString = decoder.decode(data);
+
+      // Additional validation to ensure meaningful content
+      if (decodedString && decodedString.trim().length > 0) {
+        return decodedString;
+      }
+    } catch (error) {
+      console.warn(`Failed to decode with ${encoding} encoding`);
     }
   }
+
+  // Fallback to UTF-8 if all else fails
+  return new TextDecoder("UTF-8").decode(data);
+}
+
+// Helper function to parse CSV cell with more robust handling
+function parseCSVCell(cell) {
+  if (!cell) return "";
+
+  // Remove surrounding quotes
+  let cleanCell = cell.trim().replace(/^["']|["']$/g, "");
+
+  // Normalize the cell content
+  return normalizeCompanyName(cleanCell);
 }
 
 // Function to convert a 1-based index to an Excel column letter
@@ -2357,22 +3183,58 @@ submitButton.addEventListener("click", async function () {
     alert("You cannot map a company to itself.");
     return;
   }
+  let blankRowIndex = rowCompanies.findIndex((company, index) => {
+    return (
+      (company === null ||
+        company === undefined ||
+        company === "Total Affiliated" ||
+        company.toString().trim() === "") &&
+      index < rowCompanies.length - 1
+    );
+  });
 
-  // Find row and column indices of the selected companies
-  let rowIndex = rowCompanies.indexOf(rowCompany) + 2; // Add 1 for Excel 1-based index
+  if (blankRowIndex === -1) {
+    blankRowIndex = rowCompanies.length + 1;
+  }
+
+  console.log(blankRowIndex, ":::blankRowIndex");
+  console.log(rowCompanies, ":::rowCompanies");
+
+  // Add 1 for Excel 1-based index
   let columnIndex;
+  let rowIndex = rowCompanies.indexOf(rowCompany) + 2;
 
   if (isGoogleSheetData) {
     // Dynamically extract spreadsheetId and sheetName for Google Sheets
     const sheetUrl = document.getElementById("googleSheetUrl").value;
     const sheetIdMatch = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    const spreadsheetId = sheetIdMatch[1];
+    await addTotalsToGoogleSheet(spreadsheetId);
+    const sheetSelect = document.getElementById("sheetSelect");
+    const sheetName = sheetSelect.value || sheets[0].properties.title;
 
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: spreadsheetId,
+      range: sheetName,
+    });
+    const range = response.result;
+    const values = range.values;
+    rowCompanies = values.slice(1).map((row) => row[0]);
+
+    if (rowCompanies.indexOf(rowCompany) < blankRowIndex) {
+      rowIndex = rowCompanies.indexOf(rowCompany) + 2;
+    } else {
+      if (rowCompanies.includes("Total Affiliated")) {
+        rowIndex = rowCompanies.indexOf(rowCompany) + 3;
+      }
+      rowIndex = rowCompanies.indexOf(rowCompany) + 2;
+    }
+
+    console.log(rowCompanies);
     if (!sheetIdMatch) {
       alert("Invalid Google Sheet URL.");
       return;
     }
-
-    const spreadsheetId = sheetIdMatch[1];
 
     try {
       // Get the spreadsheet metadata to retrieve sheet names
@@ -2385,10 +3247,12 @@ submitButton.addEventListener("click", async function () {
         alert("No sheets found in the spreadsheet.");
         return;
       }
-
-      // Use the first sheet by default (you can modify this logic if needed)
-      const sheetName = sheets[0].properties.title;
-      const sheetId = sheets[0].properties.sheetId;
+      const selectedSheet = sheets.find(
+        (sheet) => sheet.properties.title === sheetName
+      );
+      // const sheetId = sheets[0].properties.sheetId;
+      const sheetId = selectedSheet.properties.sheetId;
+      // const sheetId = sheets[0].properties.sheetId;
 
       columnIndex = companyList.indexOf(columnCompany) + 2; // Add 1 for Excel 1-based index
 
@@ -2495,6 +3359,7 @@ submitButton.addEventListener("click", async function () {
 
       // Update the displayed list
       updateDataTable(columnCompany, rowCompany, amount);
+      await fillDiagonalCells(companyList, spreadsheetId);
     } catch (error) {
       console.error("Error updating Google Sheet:", error);
       alert("Failed to update the sheet. " + error.message);
@@ -2560,6 +3425,8 @@ submitButton.addEventListener("click", async function () {
 
     // Update the displayed list
     updateDataTable(columnCompany, rowCompany, amount);
+    await fillDiagonalCells(companyList);
+    await findNullifiableTransactionsExcel(worksheet);
   }
 
   // Clear inputs after submission
@@ -2570,8 +3437,6 @@ submitButton.addEventListener("click", async function () {
   if (isGoogleSheetData) {
     await findNullifiableTransactions();
   }
-  await findNullifiableTransactionsExcel(worksheet);
-  await fillDiagonalCells(companyList, spreadsheetId);
 });
 
 // Function to update the displayed data table
@@ -2625,8 +3490,8 @@ downloadButton.addEventListener("click", async function () {
 
 // GOOGLE SHEET START
 const CLIENT_ID =
-  "115660540991-17v3opc0ja64ivqt8rrrd5kt4fogjto7.apps.googleusercontent.com";
-const API_KEY = "AIzaSyA9EniwLTLORTX_B2RKcrKHNUujpmLMuyw";
+  "115660540991-9jg2vh4eicn0dqcucicb9vog34bnu26o.apps.googleusercontent.com";
+const API_KEY = "AIzaSyDR6xMRkOaKRZPvXwSWSn2remGlHL5BTVw";
 
 // Discovery doc URL for APIs used by the quickstart
 const DISCOVERY_DOC =
@@ -2703,8 +3568,13 @@ function maybeEnableButtons() {
 async function handleAuthClick() {
   isGoogleSheetData = true;
 
+  downloadButton.style.display = "none";
+
   excelFile.setAttribute("disabled", true);
-  employeeFile.setAttribute("disabled", true);
+  // employeeFile.setAttribute("disabled", true);
+
+  document.getElementById("employeeFileWrap").style.display = "none";
+  document.getElementById("employeeSelectWrap").style.display = "none";
 
   tokenClient.callback = async (resp) => {
     if (resp.error !== undefined) {
@@ -2736,21 +3606,69 @@ async function handleAuthClick() {
   }
 }
 
-/**
- * Fetch data from the Google Sheet using the provided URL.
- */
-async function fetchDataFromSheet() {
-  const sheetUrl = document.getElementById("googleSheetUrl").value;
-  const sheetIdMatch = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
-
-  if (!sheetIdMatch) {
-    return;
+function findBlankRowIndex(values) {
+  // If values is empty or undefined, return 0
+  if (!values || values.length === 0) {
+    return 0;
   }
 
-  const spreadsheetId = sheetIdMatch[1]; // Extracted spreadsheet ID
+  // Find the first truly blank row (all cells empty or undefined)
+  const blankRowIndex = values.findIndex((row) => {
+    // Check if the row is completely empty or contains only an empty string
+    return (
+      !row ||
+      row.length === 0 ||
+      (row.length === 1 &&
+        (row[0] === "" || row[0] === undefined || row[0] === null))
+    );
+  });
 
+  // If no blank row found, return the length of values
+  return blankRowIndex === -1 ? values.length : blankRowIndex;
+}
+
+function findNonAffiliatedCompanies(values) {
+  console.log("Original Values:", values);
+
+  // Find the index of 'Total Affiliated' row
+  const totalAffiliatedRowIndex = values.findIndex(
+    (row) => row[0] === "Total Affiliated"
+  );
+
+  console.log("Total Affiliated Row Index:", totalAffiliatedRowIndex);
+
+  // If 'Total Affiliated' row is not found, return empty array
+  if (totalAffiliatedRowIndex === -1) {
+    console.log("No 'Total Affiliated' row found");
+    return [];
+  }
+
+  // Find non-affiliated companies starting from the row AFTER 'Total Affiliated'
+  const nonAffiliatedCompanies = values
+    .slice(totalAffiliatedRowIndex + 1)
+    .filter((row) => {
+      // Ensure the row exists and is not a total or empty row
+      return (
+        row &&
+        row.length > 0 &&
+        row[0] !== null &&
+        row[0] !== undefined &&
+        row[0].toString().trim() !== "" &&
+        row[0] !== "Total Non-Affiliated" &&
+        row[0] !== "Grand Total" &&
+        row[0] !== "Total Affiliated"
+      );
+    });
+
+  console.log("Non-Affiliated Companies:", nonAffiliatedCompanies);
+  console.log("Non-Affiliated Companies Count:", nonAffiliatedCompanies.length);
+
+  return nonAffiliatedCompanies;
+}
+
+async function addTotalsToGoogleSheet(spreadsheetId) {
   try {
-    // Step 1: Get the spreadsheet metadata to retrieve sheet names
+    // Get the spreadsheet metadata to retrieve sheet names
     const spreadsheetResponse = await gapi.client.sheets.spreadsheets.get({
       spreadsheetId: spreadsheetId,
     });
@@ -2760,28 +3678,577 @@ async function fetchDataFromSheet() {
       return;
     }
 
-    // Step 2: Select the first sheet name (or any other logic to choose a sheet)
-    const sheetName = sheets[0].properties.title; // Get the title of the first sheet
-    console.log("Using sheet name:", sheetName);
+    // Use the first sheet by default (you can modify this logic if needed)
+    const sheetSelect = document.getElementById("sheetSelect");
+    const sheetName = sheetSelect.value || sheets[0].properties.title;
+    const selectedSheet = sheets.find(
+      (sheet) => sheet.properties.title === sheetName
+    );
+    // const sheetId = sheets[0].properties.sheetId;
+    const sheetId = selectedSheet.properties.sheetId;
 
-    // Step 3: Fetch data from the selected sheet
+    // Fetch the current sheet data
     const response = await gapi.client.sheets.spreadsheets.values.get({
       spreadsheetId: spreadsheetId,
-      range: sheetName, // Use the dynamic sheet name
+      range: sheetName,
     });
-
-    console.log(response);
 
     const range = response.result;
     if (!range || !range.values || range.values.length === 0) {
       return;
     }
 
-    // Store data in the desired format
-    const allSheetsData = [range]; // Wrapping it in an array to mimic your original structure
-    const firstSheetData = allSheetsData[0].values;
+    const values = range.values;
+    const headers = values[0];
+    const numHeaders = headers.length;
 
-    // Declare new variables instead of reassigning constants
+    // Find the index of the first blank row that separates affiliated and non-affiliated companies
+    let blankRowIndex = findBlankRowIndex(values) + 1;
+
+    console.log(blankRowIndex, ":::blankRowIndex");
+
+    // Find the index of 'Total Affiliated' row
+    let totalAffiliatedRowIndex = values.findIndex(
+      (row) => row[0] === "Total Affiliated"
+    );
+
+    // Find the index of 'Total Non-Affiliated' row
+    let totalNonAffiliatedRowIndex = values.findIndex(
+      (row) => row[0] === "Total Non-Affiliated"
+    );
+
+    // Find the index of 'Grand Total' row
+    let grandTotalRowIndex = values.findIndex(
+      (row) => row[0] === "Grand Total"
+    );
+
+    console.log(totalAffiliatedRowIndex, ":::totalAffiliatedRowIndex");
+    // Check if 'Total Affiliated' row exists
+    if (totalAffiliatedRowIndex === -1) {
+      // Insert 'Total Affiliated' row
+      await gapi.client.sheets.spreadsheets.batchUpdate({
+        spreadsheetId: spreadsheetId,
+        resource: {
+          requests: [
+            {
+              insertDimension: {
+                range: {
+                  sheetId: sheetId,
+                  dimension: "ROWS",
+                  startIndex: blankRowIndex - 1,
+                  endIndex: blankRowIndex,
+                },
+                inheritFromBefore: false,
+              },
+            },
+            {
+              updateCells: {
+                rows: [
+                  {
+                    values: [
+                      {
+                        userEnteredValue: { stringValue: "Total Affiliated" },
+                      },
+                    ],
+                  },
+                ],
+                fields: "userEnteredValue",
+                start: {
+                  sheetId: sheetId,
+                  rowIndex: blankRowIndex - 1,
+                  columnIndex: 0,
+                },
+              },
+            },
+          ],
+        },
+      });
+
+      // Update the index of 'Total Affiliated' row
+      totalAffiliatedRowIndex = blankRowIndex - 1;
+    }
+
+    // Use the improved function to find non-affiliated companies
+    const nonAffiliatedCompanies = findNonAffiliatedCompanies(values);
+
+    // Only proceed with adding/updating Total Non-Affiliated and Grand Total if companies exist
+    if (nonAffiliatedCompanies.length > 0) {
+      // Prepare requests array
+      const requests = [];
+
+      // Check if 'Total Non-Affiliated' row exists
+      if (totalNonAffiliatedRowIndex >= 0) {
+        // Update 'Total Non-Affiliated' row with calculated totals
+        requests.push({
+          updateCells: {
+            rows: [
+              {
+                values: nonAffiliatedTotals,
+              },
+            ],
+            fields: "userEnteredValue,userEnteredFormat",
+            start: {
+              sheetId: sheetId,
+              rowIndex: totalNonAffiliatedRowIndex,
+              columnIndex: 1,
+            },
+          },
+        });
+      } else {
+        // If row doesn't exist, insert it
+        const lastNonEmptyRowIndex =
+          totalAffiliatedRowIndex + nonAffiliatedCompanies.length + 2;
+
+        requests.push(
+          // Insert dimension request
+          {
+            insertDimension: {
+              range: {
+                sheetId: sheetId,
+                dimension: "ROWS",
+                startIndex: lastNonEmptyRowIndex,
+                endIndex: lastNonEmptyRowIndex + 1,
+              },
+              inheritFromBefore: false,
+            },
+          },
+          // Update cell request
+          {
+            updateCells: {
+              rows: [
+                {
+                  values: [
+                    {
+                      userEnteredValue: {
+                        stringValue: "Total Non-Affiliated",
+                      },
+                    },
+                  ],
+                },
+              ],
+              fields: "userEnteredValue",
+              start: {
+                sheetId: sheetId,
+                rowIndex: lastNonEmptyRowIndex,
+                columnIndex: 0,
+              },
+            },
+          }
+        );
+
+        // Update the index of 'Total Non-Affiliated' row
+        totalNonAffiliatedRowIndex = lastNonEmptyRowIndex;
+      }
+
+      // Check if 'Grand Total' row exists
+      if (grandTotalRowIndex >= 0) {
+        // Update 'Grand Total' row with calculated totals
+        requests.push({
+          updateCells: {
+            rows: [
+              {
+                values: grandTotals,
+              },
+            ],
+            fields: "userEnteredValue,userEnteredFormat",
+            start: {
+              sheetId: sheetId,
+              rowIndex: grandTotalRowIndex,
+              columnIndex: 1,
+            },
+          },
+        });
+      } else {
+        // Insert 'Grand Total' row
+        requests.push(
+          {
+            insertDimension: {
+              range: {
+                sheetId: sheetId,
+                dimension: "ROWS",
+                startIndex: totalNonAffiliatedRowIndex + 1,
+                endIndex: totalNonAffiliatedRowIndex + 2,
+              },
+              inheritFromBefore: false,
+            },
+          },
+          {
+            updateCells: {
+              rows: [
+                {
+                  values: [
+                    {
+                      userEnteredValue: { stringValue: "Grand Total" },
+                    },
+                  ],
+                },
+              ],
+              fields: "userEnteredValue",
+              start: {
+                sheetId: sheetId,
+                rowIndex: totalNonAffiliatedRowIndex + 1,
+                columnIndex: 0,
+              },
+            },
+          }
+        );
+
+        // Update the index of 'Grand Total' row
+        grandTotalRowIndex = totalNonAffiliatedRowIndex + 1;
+      }
+
+      // Execute batch update if there are any requests
+      if (requests.length > 0) {
+        await gapi.client.sheets.spreadsheets.batchUpdate({
+          spreadsheetId: spreadsheetId,
+          resource: { requests: requests },
+        });
+      }
+    }
+
+    // Calculate totals for affiliated companies
+    const affiliatedTotals = [];
+    for (let colIndex = 1; colIndex < numHeaders; colIndex++) {
+      const sumFormula = `=SUM('${sheetName}'!${indexToColumnLetter(
+        colIndex + 1
+      )}2:${indexToColumnLetter(colIndex + 1)}${totalAffiliatedRowIndex})`;
+      affiliatedTotals.push({
+        userEnteredValue: {
+          formulaValue: sumFormula,
+        },
+        userEnteredFormat: {
+          numberFormat: {
+            type: "NUMBER",
+            pattern: "0.00",
+          },
+        },
+      });
+    }
+
+    // Calculate totals for non-affiliated companies
+    const nonAffiliatedTotals = [];
+    for (let colIndex = 1; colIndex < numHeaders; colIndex++) {
+      const sumFormula = `=SUM('${sheetName}'!${indexToColumnLetter(
+        colIndex + 1
+      )}${totalAffiliatedRowIndex + 2}:${indexToColumnLetter(
+        colIndex + 1
+      )}${totalNonAffiliatedRowIndex})`;
+      nonAffiliatedTotals.push({
+        userEnteredValue: {
+          formulaValue: sumFormula,
+        },
+        userEnteredFormat: {
+          numberFormat: {
+            type: "NUMBER",
+            pattern: "0.00",
+          },
+        },
+      });
+    }
+
+    // Calculate grand totals
+    const grandTotals = [];
+    for (let colIndex = 1; colIndex < numHeaders; colIndex++) {
+      const sumFormula = `=SUM('${sheetName}'!${indexToColumnLetter(
+        colIndex + 1
+      )}${totalAffiliatedRowIndex + 1}, '${sheetName}'!${indexToColumnLetter(
+        colIndex + 1
+      )}${totalNonAffiliatedRowIndex + 1})`;
+      grandTotals.push({
+        userEnteredValue: {
+          formulaValue: sumFormula,
+        },
+        userEnteredFormat: {
+          numberFormat: {
+            type: "NUMBER",
+            pattern: "0.00",
+          },
+        },
+      });
+    }
+
+    // Define the requests variable
+    const requests = [];
+
+    // Update 'Total Affiliated' row with calculated totals
+    if (totalAffiliatedRowIndex >= 0) {
+      requests.push({
+        updateCells: {
+          rows: [
+            {
+              values: affiliatedTotals,
+            },
+          ],
+          fields: "userEnteredValue,userEnteredFormat",
+          start: {
+            sheetId: sheetId,
+            rowIndex: totalAffiliatedRowIndex,
+            columnIndex: 1,
+          },
+        },
+      });
+    }
+
+    // Update 'Total Non-Affiliated' row with calculated totals
+    if (totalNonAffiliatedRowIndex >= 0) {
+      requests.push({
+        updateCells: {
+          rows: [
+            {
+              values: nonAffiliatedTotals,
+            },
+          ],
+          fields: "userEnteredValue,userEnteredFormat",
+          start: {
+            sheetId: sheetId,
+            rowIndex: totalNonAffiliatedRowIndex,
+            columnIndex: 1,
+          },
+        },
+      });
+    }
+
+    // Update 'Grand Total' row with calculated totals
+    if (grandTotalRowIndex >= 0) {
+      requests.push({
+        updateCells: {
+          rows: [
+            {
+              values: grandTotals,
+            },
+          ],
+          fields: "userEnteredValue,userEnteredFormat",
+          start: {
+            sheetId: sheetId,
+            rowIndex: grandTotalRowIndex,
+            columnIndex: 1,
+          },
+        },
+      });
+    }
+
+    // Make a batch update request
+    await gapi.client.sheets.spreadsheets.batchUpdate({
+      spreadsheetId: spreadsheetId,
+      resource: { requests: requests },
+    });
+
+    // Add a total column for row-wise totals
+    // Find the index of the "Total" column
+    const headerRow = values[0];
+    const totalColumnIndex = headerRow.indexOf("Total");
+
+    let rowWiseTotalColumnIndex;
+    if (totalColumnIndex === -1) {
+      // If "Total" column doesn't exist, add it
+      rowWiseTotalColumnIndex = values[0].length;
+
+      // Add column header for row-wise total
+      requests.push({
+        insertDimension: {
+          range: {
+            sheetId: sheetId,
+            dimension: "COLUMNS",
+            startIndex: rowWiseTotalColumnIndex,
+            endIndex: rowWiseTotalColumnIndex + 1,
+          },
+          inheritFromBefore: false,
+        },
+      });
+
+      // Update header with "Total"
+      requests.push({
+        updateCells: {
+          rows: [
+            {
+              values: [
+                {
+                  userEnteredValue: { stringValue: "Total" },
+                  userEnteredFormat: {
+                    textFormat: {
+                      bold: true,
+                    },
+                  },
+                },
+              ],
+            },
+          ],
+          fields: "userEnteredValue,userEnteredFormat",
+          start: {
+            sheetId: sheetId,
+            rowIndex: 0,
+            columnIndex: rowWiseTotalColumnIndex,
+          },
+        },
+      });
+    } else {
+      // If "Total" column exists, use its index
+      rowWiseTotalColumnIndex = totalColumnIndex;
+
+      // Clear existing values in the Total column
+      requests.push({
+        updateCells: {
+          rows: values.slice(1).map(() => ({
+            values: [{ userEnteredValue: { numberValue: 0 } }],
+          })),
+          fields: "userEnteredValue",
+          start: {
+            sheetId: sheetId,
+            rowIndex: 1,
+            columnIndex: rowWiseTotalColumnIndex,
+          },
+        },
+      });
+    }
+
+    // Update the total column in the sheet
+    const totalColumnFormula = [];
+    for (let rowIndex = 1; rowIndex < values.length; rowIndex++) {
+      const rowTotalFormula = `=SUM('${sheetName}'!${indexToColumnLetter(2)}${
+        rowIndex + 1
+      }:${indexToColumnLetter(rowWiseTotalColumnIndex)}${rowIndex + 1})`; // Adjusting for 1-based index
+      totalColumnFormula.push({
+        userEnteredValue: { formulaValue: rowTotalFormula },
+      });
+    }
+
+    requests.push({
+      updateCells: {
+        rows: totalColumnFormula.map((formula) => ({
+          values: [formula],
+        })),
+        fields: "userEnteredValue",
+        start: {
+          sheetId: sheetId,
+          rowIndex: 1,
+          columnIndex: rowWiseTotalColumnIndex,
+        },
+      },
+    });
+
+    // Make a batch update request
+    await gapi.client.sheets.spreadsheets.batchUpdate({
+      spreadsheetId: spreadsheetId,
+      resource: { requests: requests },
+    });
+  } catch (error) {
+    console.error("Error adding totals to Google Sheet:", error);
+  }
+}
+
+/**
+ * Fetch data from the Google Sheet using the provided URL.
+ */
+// Function to populate sheet selection dropdown
+function populateSheetSelect(sheets) {
+  const sheetSelect = document.getElementById("sheetSelect");
+
+  // Clear existing options except the default
+  sheetSelect.innerHTML =
+    '<option value="" disabled selected>Select a sheet</option>';
+
+  // Populate with available sheets
+  sheets.forEach((sheet, index) => {
+    const option = document.createElement("option");
+    option.value = sheet.properties.title;
+    option.textContent = sheet.properties.title;
+    sheetSelect.appendChild(option);
+  });
+
+  // Show the sheet selection container
+  document.querySelector(".sheet-select-form-floating").style.display = "block";
+}
+
+async function fetchDataFromSheet() {
+  const sheetUrl = document.getElementById("googleSheetUrl").value;
+  const sheetIdMatch = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
+
+  if (!sheetIdMatch) {
+    return;
+  }
+
+  const spreadsheetId = sheetIdMatch[1];
+
+  try {
+    // Step 1: Get the spreadsheet metadata to retrieve sheet names
+    const spreadsheetResponse = await gapi.client.sheets.spreadsheets.get({
+      spreadsheetId: spreadsheetId,
+    });
+
+    const sheets = spreadsheetResponse.result.sheets;
+    if (!sheets || sheets.length === 0) {
+      alert("No sheets found in the spreadsheet.");
+      return;
+    }
+
+    // If multiple sheets exist, show sheet selection
+    if (sheets.length > 1) {
+      populateSheetSelect(sheets);
+      return; // Wait for user to select a sheet
+    }
+
+    // If only one sheet, proceed with fetching data
+    // Use the first sheet's title, but now with more robust selection
+    const sheetSelect = document.getElementById("sheetSelect");
+    const sheetName = sheetSelect.value || sheets[0].properties.title;
+
+    // Find the sheet with the selected/default name
+    const selectedSheet = sheets.find(
+      (sheet) => sheet.properties.title === sheetName
+    );
+
+    if (!selectedSheet) {
+      alert("Selected sheet not found.");
+      return;
+    }
+
+    // Fetch data for the selected/default sheet
+    await fetchSelectedSheet(spreadsheetId, sheetName);
+  } catch (err) {
+    console.error("Error fetching spreadsheet metadata:", err);
+    alert("Failed to fetch spreadsheet details.");
+  }
+}
+
+// New function to fetch data for a selected sheet
+async function fetchSelectedSheet(spreadsheetId, sheetName) {
+  try {
+    // Step 1: Fetch data from the selected sheet
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: spreadsheetId,
+      range: sheetName,
+    });
+
+    const range = response.result;
+
+    // Modify the data handling to support empty sheets
+    if (!range || !range.values) {
+      // If no data, set up an empty sheet structure
+      companyList = [];
+      rowCompanies = [];
+
+      // Clear existing selects
+      companyRowSelect.innerHTML =
+        '<option value="" selected>Select a company</option>';
+      companyColumnSelect.innerHTML =
+        '<option value="" selected>Select a company</option>';
+
+      // Reinitialize Nice Select
+      if (colSelect) colSelect.destroy();
+      if (rowSelect) rowSelect.destroy();
+
+      colSelect = NiceSelect.bind(companyColumnSelect, { searchable: true });
+      rowSelect = NiceSelect.bind(companyRowSelect, { searchable: true });
+
+      // Keep the sheet selection visible
+      document.querySelector(".sheet-select-form-floating").style.display =
+        "block";
+    }
+
+    // If there's data, proceed with processing
+    const firstSheetData = range.values;
+
+    // Store data in the desired format
     companyList = firstSheetData[0].slice(1); // First row (header)
     rowCompanies = firstSheetData.slice(1).map((row) => row[0]); // First column (row companies)
 
@@ -2804,6 +4271,7 @@ async function fetchDataFromSheet() {
 
     // Update dropdowns based on the affiliation type
     updateCompanyDropdowns();
+    await addTotalsToGoogleSheet(spreadsheetId);
 
     await findNullifiableTransactions();
   } catch (err) {
@@ -2811,119 +4279,68 @@ async function fetchDataFromSheet() {
   }
 }
 
+// Add event listener for sheet selection
+document
+  .getElementById("sheetSelect")
+  .addEventListener("change", async function () {
+    const spreadsheetId = document
+      .getElementById("googleSheetUrl")
+      .value.match(/\/d\/([a-zA-Z0-9-_]+)/)[1];
+    const selectedSheetName = this.value;
+
+    // Fetch data for the selected sheet
+    await fetchSelectedSheet(spreadsheetId, selectedSheetName);
+  });
+
 // Add event listener for the authorize button
 document
   .getElementById("authorize_button")
   .addEventListener("click", handleAuthClick);
-// GOOGLE SHEET END
 
-document.addEventListener(
-  "contextmenu",
-  function (e) {
-    e.preventDefault();
-  },
-  false
-);
-document.addEventListener("keydown", function (e) {
-  // Prevent F12, Ctrl+Shift+I, Ctrl+U
-  if (
-    e.keyCode === 123 ||
-    (e.ctrlKey && e.shiftKey && e.keyCode === 73) ||
-    (e.ctrlKey && e.keyCode === 85)
-  ) {
-    e.preventDefault();
-    return false;
+newCompanyInput.addEventListener("input", function () {
+  const inputValue = this.value.trim().toLowerCase();
+  let nearbyCompanies = [];
+
+  if (isGoogleSheetData && rowCompanies.length > 0) {
+    nearbyCompanies = rowCompanies.filter(
+      (company) =>
+        company &&
+        company.toLowerCase().includes(inputValue) &&
+        company.toLowerCase() !== "total affiliated" &&
+        company.toLowerCase() !== "total non-affiliated" &&
+        company.toLowerCase() !== "grand total"
+    );
+  } else if (worksheet && worksheet.rowCount > 1) {
+    for (let i = 2; i <= worksheet.rowCount; i++) {
+      const companyName = worksheet.getRow(i).getCell(1).value;
+      if (companyName && companyName.toLowerCase().includes(inputValue)) {
+        nearbyCompanies.push(companyName);
+      }
+    }
   }
-});
-function detectDevTools() {
-  const threshold = 160;
-  const widthThreshold = window.outerWidth - window.innerWidth > threshold;
-  const heightThreshold = window.outerHeight - window.innerHeight > threshold;
 
-  if (widthThreshold || heightThreshold) {
-    // Developer tools are open
-    alert("Developer tools are not allowed!");
-    window.close(); // Optional: close the window
+  // Create a div to display the nearby companies
+  let nearbyCompaniesDiv = document.getElementById("nearby-companies");
+  if (!nearbyCompaniesDiv) {
+    nearbyCompaniesDiv = document.createElement("div");
+    nearbyCompaniesDiv.id = "nearby-companies";
+    nearbyCompaniesDiv.style.position = "absolute";
+    nearbyCompaniesDiv.style.background = "white";
+    nearbyCompaniesDiv.style.border = "1px solid #ccc";
+    nearbyCompaniesDiv.style.padding = "10px";
+    this.parentNode.appendChild(nearbyCompaniesDiv);
   }
-}
 
-// Run check periodically
-setInterval(detectDevTools, 1000);
-
-// Minify and obfuscate your JavaScript
-// Use tools like UglifyJS or webpack for obfuscation
-function protectSourceCode() {
-  // Replace sensitive strings
-  const sensitiveStrings = [CLIENT_ID, API_KEY];
-  sensitiveStrings.forEach((str) => {
-    window[str] = null; // Remove direct references
+  // Display the nearby companies
+  nearbyCompaniesDiv.innerHTML = ""; // Clear previous entries
+  nearbyCompanies.forEach((company) => {
+    const companyDiv = document.createElement("div");
+    companyDiv.textContent = company;
+    nearbyCompaniesDiv.appendChild(companyDiv);
   });
-}
 
-function addWatermark() {
-  const watermark = document.createElement("div");
-  watermark.style.position = "fixed";
-  watermark.style.bottom = "10px";
-  watermark.style.right = "10px";
-  watermark.style.opacity = "0.5";
-  watermark.innerHTML = "Proprietary Software © Your Company";
-  document.body.appendChild(watermark);
-}
-// On the server-side
-function trackAndLimitAccess(req, res, next) {
-  const clientIP = req.ip;
-  const accessCount = getAccessCount(clientIP);
-
-  if (accessCount > MAX_ALLOWED_ATTEMPTS) {
-    return res.status(429).send("Too many attempts");
-  }
-
-  incrementAccessCount(clientIP);
-  next();
-}
-
-(function () {
-  // Immediate function to create closure and prevent global scope pollution
-
-  // Disable developer tools
-  function blockDevTools() {
-    const checkDevTools = () => {
-      const threshold = 160;
-      const widthThreshold = window.outerWidth - window.innerWidth > threshold;
-      const heightThreshold =
-        window.outerHeight - window.innerHeight > threshold;
-
-      if (widthThreshold || heightThreshold) {
-        alert("Developer tools are not allowed!");
-        window.close();
-      }
-    };
-
-    // Block context menu
-    document.addEventListener("contextmenu", (e) => e.preventDefault(), false);
-
-    // Block keyboard shortcuts
-    document.addEventListener("keydown", function (e) {
-      if (
-        e.keyCode === 123 ||
-        (e.ctrlKey && e.shiftKey && e.keyCode === 73) ||
-        (e.ctrlKey && e.keyCode === 85)
-      ) {
-        e.preventDefault();
-        return false;
-      }
-    });
-
-    // Periodic check
-    setInterval(checkDevTools, 1000);
-  }
-
-  // Initialize protection
-  function initProtection() {
-    blockDevTools();
-    // Additional protection mechanisms
-  }
-
-  // Run protection
-  initProtection();
-})();
+  // Hide the nearby companies div if the input is empty or no nearby companies found
+  nearbyCompaniesDiv.style.display =
+    inputValue === "" || nearbyCompanies.length === 0 ? "none" : "block";
+});
+// GOOGLE SHEET END
