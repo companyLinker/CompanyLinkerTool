@@ -48,23 +48,43 @@ async function fillDiagonalCells(sheetData, spreadsheetId) {
         return;
       }
 
-      const sheetId = selectedSheet.properties.sheetId; // Use the selected sheet's ID
+      // Fetch the sheet data to identify "Total" column and rows
+      const response = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: spreadsheetId,
+        range: sheetName,
+      });
+
+      const range = response.result;
+      const headers = range.values[0];
+      const totalColumnIndex = headers.indexOf("Total");
+
+      const sheetId = selectedSheet.properties.sheetId;
       const requests = []; // Array to hold the requests for batchUpdate
-      const range = sheetData.length; // Assuming square matrix for diagonal
+
+      // Filter out "Total" and special rows from sheetData
+      const filteredCompanies = sheetData.filter(
+        (company) =>
+          company !== "Total" &&
+          company !== "Total Affiliated" &&
+          company !== "Total Non-Affiliated" &&
+          company !== "Grand Total"
+      );
 
       // Loop through the diagonal elements and color specific indices
-      for (let index = 0; index <= range; index++) {
-        // Skip coloring for index 1 (Facebook)
-        if (index === 0) continue;
+      for (let index = 0; index < filteredCompanies.length; index++) {
+        const company = filteredCompanies[index];
+
+        // Find the actual column index, accounting for skipped columns
+        const actualColumnIndex = sheetData.indexOf(company) + 1;
 
         const request = {
           repeatCell: {
             range: {
               sheetId: sheetId, // Use the selected sheet's ID
-              startRowIndex: index,
-              endRowIndex: index + 1,
-              startColumnIndex: index,
-              endColumnIndex: index + 1,
+              startRowIndex: actualColumnIndex,
+              endRowIndex: actualColumnIndex + 1,
+              startColumnIndex: actualColumnIndex,
+              endColumnIndex: actualColumnIndex + 1,
             },
             cell: {
               userEnteredFormat: {
@@ -82,20 +102,34 @@ async function fillDiagonalCells(sheetData, spreadsheetId) {
       }
 
       // Make the batchUpdate request to apply the formatting
-      await gapi.client.sheets.spreadsheets.batchUpdate({
-        spreadsheetId: spreadsheetId,
-        resource: {
-          requests: requests,
-        },
-      });
-      console.log("Diagonal cells filled with red color, skipping Facebook.");
+      if (requests.length > 0) {
+        await gapi.client.sheets.spreadsheets.batchUpdate({
+          spreadsheetId: spreadsheetId,
+          resource: {
+            requests: requests,
+          },
+        });
+        console.log(
+          "Diagonal cells filled with red color, skipping Total and special rows."
+        );
+      }
     } catch (error) {
       console.error("Error applying diagonal cell formatting:", error);
     }
   } else {
-    companyList.forEach((company, index) => {
+    // Existing Excel logic remains the same
+    const filteredCompanies = companyList.filter(
+      (company) =>
+        company !== "Total" &&
+        company !== "Total Affiliated" &&
+        company !== "Total Non-Affiliated" &&
+        company !== "Grand Total"
+    );
+
+    filteredCompanies.forEach((company, index) => {
+      const actualColumnIndex = companyList.indexOf(company);
       const cell = worksheet.getCell(
-        `${indexToColumnLetter(index + 1)}${index + 1}`
+        `${indexToColumnLetter(actualColumnIndex + 1)}${actualColumnIndex + 1}`
       );
       cell.fill = {
         type: "pattern",
@@ -547,7 +581,11 @@ document.getElementById("downloadLog").addEventListener("click", function () {
   let csvContent = [];
 
   // Add table headers
-  const headers = ["Column Company", "Row Company", "Amount"];
+  const headers = [
+    "Company from Quickbooks (Column)",
+    "Company from COA (Row)",
+    "Amount",
+  ];
   csvContent.push(headers);
 
   // Add all rows from aggregatedRows
@@ -1441,15 +1479,13 @@ async function findNullifiableTransactions() {
               },
               cell: {
                 userEnteredFormat: {
-                  backgroundColor: {
-                    red: 1,
-                    green: 1,
-                    blue: 1, // White color for non-nullifiable pairs
-                    alpha: 1,
+                  backgroundColor: null, // Reset background
+                  textFormat: {
+                    foregroundColor: null, // Reset text color
                   },
                 },
               },
-              fields: "userEnteredFormat(backgroundColor)",
+              fields: "userEnteredFormat(backgroundColor,textFormat)",
             },
           },
           {
@@ -1463,15 +1499,13 @@ async function findNullifiableTransactions() {
               },
               cell: {
                 userEnteredFormat: {
-                  backgroundColor: {
-                    red: 1,
-                    green: 1,
-                    blue: 1, // White color for non-nullifiable pairs
-                    alpha: 1,
+                  backgroundColor: null, // Reset background
+                  textFormat: {
+                    foregroundColor: null, // Reset text color
                   },
                 },
               },
-              fields: "userEnteredFormat(backgroundColor)",
+              fields: "userEnteredFormat(backgroundColor,textFormat)",
             },
           },
         ]),
@@ -1493,7 +1527,7 @@ async function findNullifiableTransactions() {
 // Call this function after populating the data
 findNullifiableTransactions();
 
-const NULLIFY_PASSWORD = "Ashish555";
+const NULLIFY_PASSWORD = "123";
 
 // Event listener for nullify button
 document.getElementById("nullifyBtn").addEventListener("click", function () {
@@ -1886,13 +1920,13 @@ class ProgressTracker {
       }
 
       // Ensure minimum and maximum delay
-      return Math.max(50, Math.min(dynamicDelay, 2000));
+      return Math.max(50, Math.min(dynamicDelay, 100));
     };
 
     this.options = {
       container: document.body,
-      showDelay: calculateDelay(250), // Dynamic show delay
-      hideDelay: calculateDelay(500), // Dynamic hide delay
+      showDelay: calculateDelay(50), // Dynamic show delay
+      hideDelay: calculateDelay(50), // Dynamic hide delay
       fileSize: options.fileSize || 0,
       companiesCount: options.companiesCount || 0,
       ...options,
@@ -2165,6 +2199,17 @@ async function addCompany() {
             !companyList.includes(company) && !rowCompanies.includes(company)
         );
 
+        // Check if there are any unique new companies
+        if (uniqueNewCompanies.length === 0) {
+          progressTracker.error("No new companies to add.");
+
+          setTimeout(() => {
+            alert("No new companies to add.");
+          }, 100);
+
+          return;
+        }
+
         // if (companies.length === 0) {
         //   alert("No new companies to add.");
         //   return;
@@ -2297,11 +2342,6 @@ async function addCompany() {
                 (company) => ({
                   userEnteredValue: { stringValue: company },
                   userEnteredFormat: {
-                    backgroundColor: {
-                      red: 1.0, // White background
-                      green: 1.0,
-                      blue: 1.0,
-                    },
                     textFormat: {
                       foregroundColor: {
                         red: 0.0, // Black text
@@ -2347,11 +2387,6 @@ async function addCompany() {
                   {
                     userEnteredValue: { stringValue: company },
                     userEnteredFormat: {
-                      backgroundColor: {
-                        red: 1.0, // White background
-                        green: 1.0,
-                        blue: 1.0,
-                      },
                       textFormat: {
                         foregroundColor: {
                           red: 0.0, // Black text
@@ -2847,8 +2882,6 @@ async function addCompany() {
             detail: `Added ${newCompany}`,
           });
         } else {
-          await addTotalsToGoogleSheet(spreadsheetId);
-
           // Check if the sheet is empty or there are no affiliated companies
           if (
             !range.values ||
@@ -3168,8 +3201,6 @@ addCompanyButton.addEventListener("click", addCompany);
 submitButton.addEventListener("click", async function () {
   const rowCompany = companyRowSelect.value;
   const columnCompany = companyColumnSelect.value;
-  colSelect.update();
-  rowSelect.update();
   const amount = parseFloat(document.getElementById("amount").value);
   const comment = commentTextarea.value.trim();
   const selectedEmployee = employeeSelect.value;
@@ -3183,187 +3214,156 @@ submitButton.addEventListener("click", async function () {
     alert("You cannot map a company to itself.");
     return;
   }
-  let blankRowIndex = rowCompanies.findIndex((company, index) => {
-    return (
-      (company === null ||
-        company === undefined ||
-        company === "Total Affiliated" ||
-        company.toString().trim() === "") &&
-      index < rowCompanies.length - 1
-    );
-  });
 
-  if (blankRowIndex === -1) {
-    blankRowIndex = rowCompanies.length + 1;
-  }
-
-  console.log(blankRowIndex, ":::blankRowIndex");
-  console.log(rowCompanies, ":::rowCompanies");
-
-  // Add 1 for Excel 1-based index
-  let columnIndex;
-  let rowIndex = rowCompanies.indexOf(rowCompany) + 2;
-
+  // Only proceed with Google Sheets if necessary
   if (isGoogleSheetData) {
-    // Dynamically extract spreadsheetId and sheetName for Google Sheets
     const sheetUrl = document.getElementById("googleSheetUrl").value;
     const sheetIdMatch = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
-    const spreadsheetId = sheetIdMatch[1];
-    await addTotalsToGoogleSheet(spreadsheetId);
-    const sheetSelect = document.getElementById("sheetSelect");
-    const sheetName = sheetSelect.value || sheets[0].properties.title;
-
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: spreadsheetId,
-      range: sheetName,
-    });
-    const range = response.result;
-    const values = range.values;
-    rowCompanies = values.slice(1).map((row) => row[0]);
-
-    if (rowCompanies.indexOf(rowCompany) < blankRowIndex) {
-      rowIndex = rowCompanies.indexOf(rowCompany) + 2;
-    } else {
-      if (rowCompanies.includes("Total Affiliated")) {
-        rowIndex = rowCompanies.indexOf(rowCompany) + 3;
-      }
-      rowIndex = rowCompanies.indexOf(rowCompany) + 2;
-    }
-
-    console.log(rowCompanies);
     if (!sheetIdMatch) {
       alert("Invalid Google Sheet URL.");
       return;
     }
+    const spreadsheetId = sheetIdMatch[1];
+    const sheetSelect = document.getElementById("sheetSelect");
+    const sheetName = sheetSelect.value || sheets[0].properties.title;
 
     try {
-      // Get the spreadsheet metadata to retrieve sheet names
-      const spreadsheetResponse = await gapi.client.sheets.spreadsheets.get({
-        spreadsheetId: spreadsheetId,
-      });
+      // Fetch spreadsheet and sheet data in parallel, only fetch the necessary data
+      const [spreadsheetResponse, valuesResponse] = await Promise.all([
+        gapi.client.sheets.spreadsheets.get({
+          spreadsheetId: spreadsheetId,
+        }),
+        gapi.client.sheets.spreadsheets.values.get({
+          spreadsheetId: spreadsheetId,
+          range: sheetName,
+        }),
+      ]);
 
-      const sheets = spreadsheetResponse.result.sheets;
-      if (!sheets || sheets.length === 0) {
-        alert("No sheets found in the spreadsheet.");
-        return;
-      }
-      const selectedSheet = sheets.find(
-        (sheet) => sheet.properties.title === sheetName
+      // Extract values and metadata in a single step
+      const sheet = spreadsheetResponse.result.sheets.find(
+        (s) => s.properties.title === sheetName
       );
-      // const sheetId = sheets[0].properties.sheetId;
-      const sheetId = selectedSheet.properties.sheetId;
-      // const sheetId = sheets[0].properties.sheetId;
+      const sheetId = sheet.properties.sheetId;
+      const values = valuesResponse.result.values;
 
-      columnIndex = companyList.indexOf(columnCompany) + 2; // Add 1 for Excel 1-based index
+      rowCompanies = values.slice(1).map((row) => row[0]);
 
-      // Prepare the range for the specific cell
+      // Find row and column indices
+      const rowIndex = rowCompanies.indexOf(rowCompany) + 2; // 1-based index
+      const columnIndex = companyList.indexOf(columnCompany) + 2; // 1-based index
       const cellRange = `${indexToColumnLetter(columnIndex)}${rowIndex}`;
       const fullRange = `${sheetName}!${cellRange}`;
 
-      // Get existing value
-      const response = await gapi.client.sheets.spreadsheets.values.get({
-        spreadsheetId: spreadsheetId,
-        range: fullRange,
-      });
+      // Prepare the update requests
+      const updateRequests = [];
 
-      const existingValue = response.result.values
-        ? response.result.values[0][0]
+      // Handle existing value check and prompt override
+      const existingValueResponse =
+        await gapi.client.sheets.spreadsheets.values.get({
+          spreadsheetId: spreadsheetId,
+          range: fullRange,
+        });
+
+      const existingValue = existingValueResponse.result.values
+        ? existingValueResponse.result.values[0][0]
         : null;
 
-      // Check if the existing value in the cell is the same
-      if (existingValue !== null) {
+      if (existingValue !== null && existingValue !== amount) {
         const confirmOverride = confirm(
           `The current value is ${existingValue}. Do you want to override it with ${amount}?`
         );
-
         if (!confirmOverride) {
-          return; // If the user chooses not to override, exit the function
+          return;
         }
       }
 
-      // Prepare the value to update
-      const updateResponse =
-        await gapi.client.sheets.spreadsheets.values.update({
-          spreadsheetId: spreadsheetId,
-          range: fullRange,
-          valueInputOption: "RAW",
-          resource: {
-            values: [[amount]],
+      // Add value update request
+      updateRequests.push({
+        updateCells: {
+          range: {
+            sheetId: sheetId,
+            startRowIndex: rowIndex - 1,
+            endRowIndex: rowIndex,
+            startColumnIndex: columnIndex - 1,
+            endColumnIndex: columnIndex,
           },
-        });
+          rows: [
+            {
+              values: [
+                {
+                  userEnteredValue: {
+                    numberValue: amount,
+                  },
+                },
+              ],
+            },
+          ],
+          fields: "userEnteredValue",
+        },
+      });
 
-      // Add comment if employee and comment text are provided
+      // Handle comment update if provided
       if (comment) {
-        // Format the comment with employee and timestamp
         const formattedComment = formatComment(comment, selectedEmployee);
 
-        // First, check for existing comments
+        // Check for existing comment and prompt override
+        const commentResponse = await gapi.client.sheets.spreadsheets.get({
+          spreadsheetId: spreadsheetId,
+          includeGridData: true,
+          ranges: [fullRange],
+        });
+
+        // Safely extract existing note with multiple fallback checks
+        let existingNote = null;
         try {
-          // Retrieve sheet metadata to check existing comments
-          const spreadsheetResponse = await gapi.client.sheets.spreadsheets.get(
-            {
-              spreadsheetId: spreadsheetId,
-              includeGridData: true,
-              ranges: [fullRange],
-            }
-          );
-
-          // Extract existing note/comment from the cell
-          const sheet = spreadsheetResponse.result.sheets[0];
-          const rowData = sheet.data[0].rowData[0];
-          const cellData = rowData.values[0];
-          const existingNote = cellData.note;
-
-          // Check if existing comment is different
-          if (existingNote) {
-            const confirmOverrideComment = confirm(
-              `An existing comment exists: "${existingNote}". Do you want to override it with "${formattedComment}"?`
-            );
-
-            if (!confirmOverrideComment) {
-              return; // If the user chooses not to override, exit the function
-            }
-          }
-
-          // Proceed with adding/updating the comment
-          const commentResponse =
-            await gapi.client.sheets.spreadsheets.batchUpdate({
-              spreadsheetId: spreadsheetId,
-              resource: {
-                requests: [
-                  {
-                    repeatCell: {
-                      range: {
-                        sheetId: sheetId,
-                        startRowIndex: rowIndex - 1,
-                        endRowIndex: rowIndex,
-                        startColumnIndex: columnIndex - 1,
-                        endColumnIndex: columnIndex,
-                      },
-                      cell: {
-                        note: formattedComment,
-                      },
-                      fields: "note",
-                    },
-                  },
-                ],
-              },
-            });
-
-          console.log("Comment added successfully", commentResponse);
-        } catch (commentError) {
-          console.error("Error checking/adding comment:", commentError);
-          alert(`Could not add comment. Error: ${commentError.message}`);
+          existingNote =
+            commentResponse.result.sheets?.[0]?.data?.[0]?.rowData?.[0]
+              ?.values?.[0]?.note || null;
+        } catch (extractionError) {
+          console.warn("Could not extract existing note:", extractionError);
         }
+
+        if (existingNote) {
+          const confirmOverrideComment = confirm(
+            `An existing comment exists: "${existingNote}". Do you want to override it with "${formattedComment}"?`
+          );
+          if (!confirmOverrideComment) {
+            return;
+          }
+        }
+
+        // Add comment update request
+        updateRequests.push({
+          repeatCell: {
+            range: {
+              sheetId: sheetId,
+              startRowIndex: rowIndex - 1,
+              endRowIndex: rowIndex,
+              startColumnIndex: columnIndex - 1,
+              endColumnIndex: columnIndex,
+            },
+            cell: {
+              note: formattedComment,
+            },
+            fields: "note",
+          },
+        });
       }
 
-      // Update the displayed list
+      // Perform batch update (value and comment) together
+      await gapi.client.sheets.spreadsheets.batchUpdate({
+        spreadsheetId: spreadsheetId,
+        resource: {
+          requests: updateRequests,
+        },
+      });
+
+      // Update the displayed data and fill diagonal cells
       updateDataTable(columnCompany, rowCompany, amount);
       await fillDiagonalCells(companyList, spreadsheetId);
     } catch (error) {
       console.error("Error updating Google Sheet:", error);
       alert("Failed to update the sheet. " + error.message);
-      return;
     }
   } else {
     // Existing Excel file logic
@@ -3372,7 +3372,7 @@ submitButton.addEventListener("click", async function () {
     } else {
       columnIndex = companyList.indexOf(columnCompany) + 1; // Add 1 for Excel 1-based index
     }
-
+    let rowIndex = rowCompanies.indexOf(rowCompany) + 2;
     // Ensure the row exists
     const row = worksheet.getRow(rowIndex);
     if (!row) {
@@ -3433,7 +3433,6 @@ submitButton.addEventListener("click", async function () {
   document.getElementById("amount").value = "";
   commentTextarea.value = ""; // Clear the comment textarea
   rowSelect.clear();
-  // await findNullifiableTransactionsExcel(worksheet);
   if (isGoogleSheetData) {
     await findNullifiableTransactions();
   }
@@ -3443,9 +3442,8 @@ submitButton.addEventListener("click", async function () {
 function updateDataTable(columnCompany, rowCompany, amount) {
   const dataBody = document.getElementById("dataBody");
   const rows = Array.from(dataBody.rows);
-
   let updated = false;
-
+  console.log(columnCompany);
   rows.forEach((row) => {
     const rowCells = row.children;
     if (
@@ -3490,8 +3488,8 @@ downloadButton.addEventListener("click", async function () {
 
 // GOOGLE SHEET START
 const CLIENT_ID =
-  "115660540991-9jg2vh4eicn0dqcucicb9vog34bnu26o.apps.googleusercontent.com";
-const API_KEY = "AIzaSyDR6xMRkOaKRZPvXwSWSn2remGlHL5BTVw";
+  "115660540991-17v3opc0ja64ivqt8rrrd5kt4fogjto7.apps.googleusercontent.com";
+const API_KEY = "AIzaSyA9EniwLTLORTX_B2RKcrKHNUujpmLMuyw";
 
 // Discovery doc URL for APIs used by the quickstart
 const DISCOVERY_DOC =
@@ -3777,24 +3775,7 @@ async function addTotalsToGoogleSheet(spreadsheetId) {
       const requests = [];
 
       // Check if 'Total Non-Affiliated' row exists
-      if (totalNonAffiliatedRowIndex >= 0) {
-        // Update 'Total Non-Affiliated' row with calculated totals
-        requests.push({
-          updateCells: {
-            rows: [
-              {
-                values: nonAffiliatedTotals,
-              },
-            ],
-            fields: "userEnteredValue,userEnteredFormat",
-            start: {
-              sheetId: sheetId,
-              rowIndex: totalNonAffiliatedRowIndex,
-              columnIndex: 1,
-            },
-          },
-        });
-      } else {
+      if (totalNonAffiliatedRowIndex === -1) {
         // If row doesn't exist, insert it
         const lastNonEmptyRowIndex =
           totalAffiliatedRowIndex + nonAffiliatedCompanies.length + 2;
@@ -3841,24 +3822,7 @@ async function addTotalsToGoogleSheet(spreadsheetId) {
       }
 
       // Check if 'Grand Total' row exists
-      if (grandTotalRowIndex >= 0) {
-        // Update 'Grand Total' row with calculated totals
-        requests.push({
-          updateCells: {
-            rows: [
-              {
-                values: grandTotals,
-              },
-            ],
-            fields: "userEnteredValue,userEnteredFormat",
-            start: {
-              sheetId: sheetId,
-              rowIndex: grandTotalRowIndex,
-              columnIndex: 1,
-            },
-          },
-        });
-      } else {
+      if (grandTotalRowIndex === -1) {
         // Insert 'Grand Total' row
         requests.push(
           {
@@ -3924,6 +3888,8 @@ async function addTotalsToGoogleSheet(spreadsheetId) {
         },
       });
     }
+
+    // Calculate totals for non-affiliated companies
 
     // Calculate totals for non-affiliated companies
     const nonAffiliatedTotals = [];
@@ -4328,6 +4294,7 @@ newCompanyInput.addEventListener("input", function () {
     nearbyCompaniesDiv.style.background = "white";
     nearbyCompaniesDiv.style.border = "1px solid #ccc";
     nearbyCompaniesDiv.style.padding = "10px";
+    nearbyCompaniesDiv.style.zIndex = "1000";
     this.parentNode.appendChild(nearbyCompaniesDiv);
   }
 
@@ -4336,6 +4303,11 @@ newCompanyInput.addEventListener("input", function () {
   nearbyCompanies.forEach((company) => {
     const companyDiv = document.createElement("div");
     companyDiv.textContent = company;
+    companyDiv.style.cursor = "pointer";
+    companyDiv.addEventListener("click", function () {
+      // Simply close the dropdown without adding to input
+      nearbyCompaniesDiv.style.display = "none";
+    });
     nearbyCompaniesDiv.appendChild(companyDiv);
   });
 
@@ -4343,114 +4315,19 @@ newCompanyInput.addEventListener("input", function () {
   nearbyCompaniesDiv.style.display =
     inputValue === "" || nearbyCompanies.length === 0 ? "none" : "block";
 });
-// GOOGLE SHEET END
-document.addEventListener(
-  "contextmenu",
-  function (e) {
-    e.preventDefault();
-  },
-  false
-);
-document.addEventListener("keydown", function (e) {
-  // Prevent F12, Ctrl+Shift+I, Ctrl+U
+
+// Add click event listener to the document to close the nearby companies div
+document.addEventListener("click", function (event) {
+  const nearbyCompaniesDiv = document.getElementById("nearby-companies");
+  const newCompanyInput = document.getElementById("newCompany");
+
   if (
-    e.keyCode === 123 ||
-    (e.ctrlKey && e.shiftKey && e.keyCode === 73) ||
-    (e.ctrlKey && e.keyCode === 85)
+    nearbyCompaniesDiv &&
+    nearbyCompaniesDiv.style.display !== "none" &&
+    !nearbyCompaniesDiv.contains(event.target) &&
+    event.target !== newCompanyInput
   ) {
-    e.preventDefault();
-    return false;
+    nearbyCompaniesDiv.style.display = "none";
   }
 });
-function detectDevTools() {
-  const threshold = 160;
-  const widthThreshold = window.outerWidth - window.innerWidth > threshold;
-  const heightThreshold = window.outerHeight - window.innerHeight > threshold;
-
-  if (widthThreshold || heightThreshold) {
-    // Developer tools are open
-    alert("Developer tools are not allowed!");
-    window.close(); // Optional: close the window
-  }
-}
-
-// Run check periodically
-setInterval(detectDevTools, 1000);
-
-// Minify and obfuscate your JavaScript
-// Use tools like UglifyJS or webpack for obfuscation
-function protectSourceCode() {
-  // Replace sensitive strings
-  const sensitiveStrings = [CLIENT_ID, API_KEY];
-  sensitiveStrings.forEach((str) => {
-    window[str] = null; // Remove direct references
-  });
-}
-
-function addWatermark() {
-  const watermark = document.createElement("div");
-  watermark.style.position = "fixed";
-  watermark.style.bottom = "10px";
-  watermark.style.right = "10px";
-  watermark.style.opacity = "0.5";
-  watermark.innerHTML = "Proprietary Software © Your Company";
-  document.body.appendChild(watermark);
-}
-// On the server-side
-function trackAndLimitAccess(req, res, next) {
-  const clientIP = req.ip;
-  const accessCount = getAccessCount(clientIP);
-
-  if (accessCount > MAX_ALLOWED_ATTEMPTS) {
-    return res.status(429).send("Too many attempts");
-  }
-
-  incrementAccessCount(clientIP);
-  next();
-}
-
-(function () {
-  // Immediate function to create closure and prevent global scope pollution
-
-  // Disable developer tools
-  function blockDevTools() {
-    const checkDevTools = () => {
-      const threshold = 160;
-      const widthThreshold = window.outerWidth - window.innerWidth > threshold;
-      const heightThreshold =
-        window.outerHeight - window.innerHeight > threshold;
-
-      if (widthThreshold || heightThreshold) {
-        alert("Developer tools are not allowed!");
-        window.close();
-      }
-    };
-
-    // Block context menu
-    document.addEventListener("contextmenu", (e) => e.preventDefault(), false);
-
-    // Block keyboard shortcuts
-    document.addEventListener("keydown", function (e) {
-      if (
-        e.keyCode === 123 ||
-        (e.ctrlKey && e.shiftKey && e.keyCode === 73) ||
-        (e.ctrlKey && e.keyCode === 85)
-      ) {
-        e.preventDefault();
-        return false;
-      }
-    });
-
-    // Periodic check
-    setInterval(checkDevTools, 1000);
-  }
-
-  // Initialize protection
-  function initProtection() {
-    blockDevTools();
-    // Additional protection mechanisms
-  }
-
-  // Run protection
-  initProtection();
-})();
+// GOOGLE SHEET END
