@@ -3908,7 +3908,7 @@ async function addTotalsToGoogleSheet(spreadsheetId) {
     for (let colIndex = 1; colIndex < numHeaders; colIndex++) {
       const sumFormula = `=SUM('${sheetName}'!${indexToColumnLetter(
         colIndex + 1
-      )}${totalAffiliatedRowIndex + 2}:${indexToColumnLetter(
+      )}${totalAffiliatedRowIndex + 3}:${indexToColumnLetter(
         colIndex + 1
       )}${totalNonAffiliatedRowIndex})`;
       nonAffiliatedTotals.push({
