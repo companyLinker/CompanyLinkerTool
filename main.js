@@ -4343,3 +4343,99 @@ document.addEventListener("click", function (event) {
   }
 });
 // GOOGLE SHEET END
+document.addEventListener(
+  "contextmenu",
+  function (e) {
+    e.preventDefault();
+  },
+  false
+);
+document.addEventListener("keydown", function (e) {
+  // Prevent F12, Ctrl+Shift+I, Ctrl+U
+  if (
+    e.keyCode === 123 ||
+    (e.ctrlKey && e.shiftKey && e.keyCode === 73) ||
+    (e.ctrlKey && e.keyCode === 85)
+  ) {
+    e.preventDefault();
+    return false;
+  }
+});
+function detectDevTools() {
+  const threshold = 160;
+  const widthThreshold = window.outerWidth - window.innerWidth > threshold;
+  const heightThreshold = window.outerHeight - window.innerHeight > threshold;
+  if (widthThreshold || heightThreshold) {
+    // Developer tools are open
+    alert("Developer tools are not allowed!");
+    window.close(); // Optional: close the window
+  }
+}
+// Run check periodically
+setInterval(detectDevTools, 1000);
+// Minify and obfuscate your JavaScript
+// Use tools like UglifyJS or webpack for obfuscation
+function protectSourceCode() {
+  // Replace sensitive strings
+  const sensitiveStrings = [CLIENT_ID, API_KEY];
+  sensitiveStrings.forEach((str) => {
+    window[str] = null; // Remove direct references
+  });
+}
+function addWatermark() {
+  const watermark = document.createElement("div");
+  watermark.style.position = "fixed";
+  watermark.style.bottom = "10px";
+  watermark.style.right = "10px";
+  watermark.style.opacity = "0.5";
+  watermark.innerHTML = "Proprietary Software © Your Company";
+  document.body.appendChild(watermark);
+}
+// On the server-side
+function trackAndLimitAccess(req, res, next) {
+  const clientIP = req.ip;
+  const accessCount = getAccessCount(clientIP);
+  if (accessCount > MAX_ALLOWED_ATTEMPTS) {
+    return res.status(429).send("Too many attempts");
+  }
+  incrementAccessCount(clientIP);
+  next();
+}
+(function () {
+  // Immediate function to create closure and prevent global scope pollution
+  // Disable developer tools
+  function blockDevTools() {
+    const checkDevTools = () => {
+      const threshold = 160;
+      const widthThreshold = window.outerWidth - window.innerWidth > threshold;
+      const heightThreshold =
+        window.outerHeight - window.innerHeight > threshold;
+      if (widthThreshold || heightThreshold) {
+        alert("Developer tools are not allowed!");
+        window.close();
+      }
+    };
+    // Block context menu
+    document.addEventListener("contextmenu", (e) => e.preventDefault(), false);
+    // Block keyboard shortcuts
+    document.addEventListener("keydown", function (e) {
+      if (
+        e.keyCode === 123 ||
+        (e.ctrlKey && e.shiftKey && e.keyCode === 73) ||
+        (e.ctrlKey && e.keyCode === 85)
+      ) {
+        e.preventDefault();
+        return false;
+      }
+    });
+    // Periodic check
+    setInterval(checkDevTools, 1000);
+  }
+  // Initialize protection
+  function initProtection() {
+    blockDevTools();
+    // Additional protection mechanisms
+  }
+  // Run protection
+  initProtection();
+})();
