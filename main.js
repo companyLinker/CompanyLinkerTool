@@ -611,10 +611,22 @@ document.getElementById("downloadLog").addEventListener("click", function () {
   const url = URL.createObjectURL(blob);
   link.setAttribute("href", url);
 
-  // Generate filename with current date
+  // Generate filename with current date and time
   const currentDate = new Date();
-  const formattedDate = currentDate.toISOString().split("T")[0]; // YYYY-MM-DD format
-  link.setAttribute("download", `transaction_log_${formattedDate}.csv`);
+  const hours = String(currentDate.getHours()).padStart(2, "0");
+  const minutes = String(currentDate.getMinutes()).padStart(2, "0");
+  const seconds = String(currentDate.getSeconds()).padStart(2, "0");
+  const formattedDateTime = `${currentDate.getFullYear()}-${String(
+    currentDate.getMonth() + 1
+  ).padStart(2, "0")}-${String(currentDate.getDate()).padStart(
+    2,
+    "0"
+  )}_${hours}-${minutes}-${seconds}`;
+  const formattedDateTimeWithHyphens = formattedDateTime.replace(/:/g, "-");
+  link.setAttribute(
+    "download",
+    `transaction_log_${formattedDateTimeWithHyphens}.csv`
+  );
 
   // Trigger download
   document.body.appendChild(link);
