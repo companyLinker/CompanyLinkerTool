@@ -109,11 +109,14 @@
           </div>
           <div class="row g-4 justify-content-between form-wrapper">
             <div class="col-sm-6 col-12">
-              <div class="form-floating company-select-form-floating">
+              <div
+                class="form-floating company-select-input company-select-form-floating"
+              >
                 <select
                   class="form-select company-select"
                   id="companyColumn"
                   aria-label="Company Select (Column)"
+                  tabindex="0"
                 >
                   <option
                     data-display="companyColumn"
@@ -130,11 +133,14 @@
               </div>
             </div>
             <div class="col-sm-6 col-12">
-              <div class="form-floating company-select-form-floating">
+              <div
+                class="form-floating company-select-input company-select-form-floating"
+              >
                 <select
                   class="form-select company-select"
                   id="companyRow"
                   aria-label="Company Select (Row)"
+                  tabindex="0"
                 >
                   <option data-display="companyRow" value="" disabled selected>
                     Select a company (Row)
@@ -153,6 +159,7 @@
                 aria-label="Amount"
                 disabled
                 id="amount"
+                tabindex="0"
               />
             </div>
             <div id="employeeFileWrap" class="col-12">
@@ -185,6 +192,7 @@
                   id="comment"
                   disabled
                   style="height: 80px"
+                  tabindex="0"
                 ></textarea>
                 <label for="comment">Comments</label>
               </div>
@@ -194,6 +202,7 @@
                 class="btn btn-success btn-lg custom-btn"
                 id="submitButton"
                 type="submit"
+                tabindex="0"
               >
                 Submit
               </button>
