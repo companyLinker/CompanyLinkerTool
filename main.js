@@ -212,10 +212,9 @@ async function fetchUserEmail() {
 
   const response = await gapi.client.people.people.get({
     resourceName: "people/me",
-    personFields: "emailAddresses",
+    personFields: "names",
   });
-
-  return response.result.emailAddresses[0].value;
+  return response.result.names[0].displayName;
 }
 
 // Function to format the comment with the selected employee
@@ -248,6 +247,17 @@ async function populateDataTable(selectedRowCompany, selectedColumnCompany) {
   let currentPage = 1;
   const rows = {};
 
+  // Modify the function to handle nullifiable pairs
+  let nullifiablePairs = []; // Store nullifiable pairs globally
+
+  // Function to check if a pair is nullifiable
+  function isNullifiablePair(columnCompany, rowCompany) {
+    return nullifiablePairs.some(
+      (pair) =>
+        (pair.companyA === columnCompany && pair.companyB === rowCompany) ||
+        (pair.companyB === columnCompany && pair.companyA === rowCompany)
+    );
+  }
   // Create pagination container if it doesn't exist
   if (!paginationContainer) {
     const paginationDiv = document.createElement("div");
@@ -440,51 +450,158 @@ async function populateDataTable(selectedRowCompany, selectedColumnCompany) {
         columnCompany: item.columnCompany,
         rowCompany: item.rowCompany,
         amounts: [item.amount],
+        isNullifiable: false, // Add this flag
       };
     } else {
       aggregatedRows[item.key].amounts.push(item.amount);
     }
   }
+  async function fetchNullifiablePairs() {
+    if (isGoogleSheetData) {
+      // For Google Sheets
+      try {
+        const sheetUrl = document.getElementById("googleSheetUrl").value;
+        const sheetIdMatch = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
+        const spreadsheetId = sheetIdMatch[1];
+        const sheetName = sheetSelect.value || sheets[0].properties.title;
+
+        // Fetch sheet data
+        const response = await gapi.client.sheets.spreadsheets.values.get({
+          spreadsheetId: spreadsheetId,
+          range: sheetName,
+        });
+
+        const range = response.result;
+        const values = range.values;
+        const headers = values[0].slice(1);
+
+        // Use the existing findNullifiableTransactions logic
+        const transactionMap = new Map();
+
+        // Populate transaction map
+        for (let rowIndex = 1; rowIndex < values.length; rowIndex++) {
+          const fromCompany = values[rowIndex][0];
+
+          for (
+            let colIndex = 1;
+            colIndex < values[rowIndex].length;
+            colIndex++
+          ) {
+            const toCompany = headers[colIndex - 1];
+            const amount = parseAmount(values[rowIndex][colIndex]);
+
+            if (amount === null || fromCompany === toCompany) continue;
+
+            if (!transactionMap.has(fromCompany)) {
+              transactionMap.set(fromCompany, {});
+            }
+            transactionMap.get(fromCompany)[toCompany] = amount;
+          }
+        }
+
+        // Find nullifiable pairs
+        const nullifiablePairsResult = findNullifiablePairs(transactionMap);
+        return nullifiablePairsResult.nullifiablePairs;
+      } catch (error) {
+        console.error("Error fetching nullifiable pairs:", error);
+        return [];
+      }
+    } else {
+      // For Excel
+      const nullifiablePairsResult =
+        findNullifiableTransactionsExcel(worksheet);
+      return nullifiablePairsResult.nullifiablePairs || [];
+    }
+  }
+
+  // Helper function to parse amount
+  function parseAmount(amount) {
+    if (amount === null || amount === undefined || amount === "") {
+      return null;
+    }
+
+    if (typeof amount === "number" && !isNaN(amount)) {
+      return amount;
+    }
+
+    if (typeof amount === "string") {
+      amount = amount.trim();
+
+      // Check if the amount is in parentheses
+      if (amount.startsWith("(") && amount.endsWith(")")) {
+        amount = "-" + amount.slice(1, -1).replace(/[$,]/g, "");
+      } else {
+        amount = amount.replace(/[$,]/g, ""); // Remove currency symbols
+      }
+
+      const parsedNum = parseFloat(amount);
+      return !isNaN(parsedNum) ? parsedNum : null;
+    }
+
+    return null;
+  }
 
   // Pagination function
   function renderPage(page) {
-    // Store aggregatedRows in a global or accessible variable
-    window.currentAggregatedRows = aggregatedRows;
+    fetchNullifiablePairs().then((pairs) => {
+      nullifiablePairs = pairs;
 
-    dataBody.innerHTML = ""; // Clear existing rows
-    const keys = Object.keys(aggregatedRows);
-    const totalItems = keys.length;
-    const totalPages = Math.ceil(totalItems / itemsPerPage);
+      // Mark nullifiable pairs before rendering
+      Object.keys(aggregatedRows).forEach((key) => {
+        const row = aggregatedRows[key];
+        row.isNullifiable = isNullifiablePair(
+          row.columnCompany,
+          row.rowCompany
+        );
+      });
 
-    const startIndex = (page - 1) * itemsPerPage;
-    const endIndex = startIndex + itemsPerPage;
+      // Store the full aggregated rows globally before rendering
+      window.currentAggregatedRows = aggregatedRows;
 
-    // Render current page items
-    const pageKeys = keys.slice(startIndex, endIndex);
-    pageKeys.forEach((key) => {
-      const row = aggregatedRows[key];
-      const totalAmount = row.amounts.join(", ");
+      dataBody.innerHTML = ""; // Clear existing rows
+      const keys = Object.keys(aggregatedRows);
+      const totalItems = keys.length;
+      const totalPages = Math.ceil(totalItems / itemsPerPage);
 
-      const rowElement = document.createElement("tr");
-      rowElement.innerHTML = `
-      <td>${row.columnCompany}</td>
-      <td>${row.rowCompany}</td>
-      <td>${totalAmount}</td>
-    `;
-      dataBody.appendChild(rowElement);
+      const startIndex = (page - 1) * itemsPerPage;
+      const endIndex = startIndex + itemsPerPage;
+
+      // Render current page items
+      const pageKeys = keys.slice(startIndex, endIndex);
+      pageKeys.forEach((key) => {
+        const row = aggregatedRows[key];
+        const totalAmount = row.amounts.join(", ");
+
+        const rowElement = document.createElement("tr");
+        const amountCell = document.createElement("td");
+        amountCell.textContent = totalAmount;
+
+        // Check if the pair is nullifiable and add yellow background to amount cell
+        if (row.isNullifiable) {
+          amountCell.style.backgroundColor = "yellow";
+        }
+
+        rowElement.innerHTML = `
+          <td>${row.columnCompany}</td>
+          <td>${row.rowCompany}</td>
+        `;
+
+        rowElement.appendChild(amountCell);
+        dataBody.appendChild(rowElement);
+      });
+
+      // If no data, show message
+      if (pageKeys.length === 0) {
+        const messageRow = document.createElement("tr");
+        messageRow.innerHTML = `
+          <td colspan="3" class="text-center">No data available</td>
+        `;
+        dataBody.appendChild(messageRow);
+      }
+
+      // Update pagination controls
+      renderPaginationControls(page, totalPages);
     });
-
-    // If no data, show message
-    if (pageKeys.length === 0) {
-      const messageRow = document.createElement("tr");
-      messageRow.innerHTML = `
-        <td colspan="3" class="text-center">No data available</td>
-      `;
-      dataBody.appendChild(messageRow);
-    }
-
-    // Update pagination controls
-    renderPaginationControls(page, totalPages);
   }
 
   // Pagination controls rendering
@@ -573,6 +690,65 @@ async function populateDataTable(selectedRowCompany, selectedColumnCompany) {
   renderPage(currentPage);
 }
 
+function findNullifiablePairs(transactionMap) {
+  const nullifiablePairs = [];
+  const nonNullifiablePairs = [];
+  const processedPairs = new Set();
+
+  for (const [companyA, transactionsA] of transactionMap.entries()) {
+    for (const [companyB, amountAtoB] of Object.entries(transactionsA)) {
+      // Skip if amount is null or zero
+      if (amountAtoB === null || amountAtoB === 0) continue;
+
+      const pairKey = `${companyA}-${companyB}`;
+      const reversePairKey = `${companyB}-${companyA}`;
+
+      // Skip if this pair has been processed
+      if (processedPairs.has(pairKey) || processedPairs.has(reversePairKey))
+        continue;
+
+      // Check if reverse transaction exists
+      if (
+        transactionMap.has(companyB) &&
+        transactionMap.get(companyB)[companyA] !== undefined
+      ) {
+        const amountBtoA = transactionMap.get(companyB)[companyA];
+
+        // Mark these pairs as processed
+        processedPairs.add(pairKey);
+        processedPairs.add(reversePairKey);
+
+        // Check if amounts are equal in magnitude but opposite in sign
+        if (
+          amountBtoA !== null &&
+          Math.abs(amountAtoB) === Math.abs(amountBtoA) &&
+          Math.sign(amountAtoB) !== Math.sign(amountBtoA)
+        ) {
+          nullifiablePairs.push({
+            companyA,
+            companyB,
+            amountAtoB,
+            amountBtoA,
+          });
+        } else {
+          // If not nullifiable, add to non-nullifiable pairs
+          nonNullifiablePairs.push({
+            companyA,
+            companyB,
+            amountAtoB,
+            amountBtoA,
+          });
+        }
+      }
+    }
+  }
+
+  return {
+    nullifiablePairs,
+    nonNullifiablePairs,
+  };
+}
+
 document.getElementById("downloadLog").addEventListener("click", function () {
   // Use the globally stored aggregatedRows
   const aggregatedRows = window.currentAggregatedRows || {};
@@ -585,6 +761,7 @@ document.getElementById("downloadLog").addEventListener("click", function () {
     "Company from Quickbooks (Column)",
     "Company from COA (Row)",
     "Amount",
+    "Nullifiable",
   ];
   csvContent.push(headers);
 
@@ -594,6 +771,7 @@ document.getElementById("downloadLog").addEventListener("click", function () {
       row.columnCompany,
       row.rowCompany,
       row.amounts.join(","),
+      row.isNullifiable ? "Yes" : "No",
     ].map((value) => sanitizeCSVValue(value));
     csvContent.push(rowData);
   });
@@ -3373,6 +3551,7 @@ submitButton.addEventListener("click", async function () {
       // Update the displayed data and fill diagonal cells
       updateDataTable(columnCompany, rowCompany, amount);
       await fillDiagonalCells(companyList, spreadsheetId);
+      await addTotalsToGoogleSheet(spreadsheetId);
     } catch (error) {
       console.error("Error updating Google Sheet:", error);
       alert("Failed to update the sheet. " + error.message);
@@ -3500,8 +3679,8 @@ downloadButton.addEventListener("click", async function () {
 
 // GOOGLE SHEET START
 const CLIENT_ID =
-  "115660540991-17v3opc0ja64ivqt8rrrd5kt4fogjto7.apps.googleusercontent.com";
-const API_KEY = "AIzaSyA9EniwLTLORTX_B2RKcrKHNUujpmLMuyw";
+  "115660540991-9jg2vh4eicn0dqcucicb9vog34bnu26o.apps.googleusercontent.com";
+const API_KEY = "AIzaSyDR6xMRkOaKRZPvXwSWSn2remGlHL5BTVw";
 
 // Discovery doc URL for APIs used by the quickstart
 const DISCOVERY_DOC =
@@ -3906,6 +4085,7 @@ async function addTotalsToGoogleSheet(spreadsheetId) {
     // Calculate totals for non-affiliated companies
     const nonAffiliatedTotals = [];
     for (let colIndex = 1; colIndex < numHeaders; colIndex++) {
+      console.log(totalAffiliatedRowIndex + 2);
       const sumFormula = `=SUM('${sheetName}'!${indexToColumnLetter(
         colIndex + 1
       )}${totalAffiliatedRowIndex + 3}:${indexToColumnLetter(
@@ -4343,99 +4523,3 @@ document.addEventListener("click", function (event) {
   }
 });
 // GOOGLE SHEET END
-document.addEventListener(
-  "contextmenu",
-  function (e) {
-    e.preventDefault();
-  },
-  false
-);
-document.addEventListener("keydown", function (e) {
-  // Prevent F12, Ctrl+Shift+I, Ctrl+U
-  if (
-    e.keyCode === 123 ||
-    (e.ctrlKey && e.shiftKey && e.keyCode === 73) ||
-    (e.ctrlKey && e.keyCode === 85)
-  ) {
-    e.preventDefault();
-    return false;
-  }
-});
-function detectDevTools() {
-  const threshold = 160;
-  const widthThreshold = window.outerWidth - window.innerWidth > threshold;
-  const heightThreshold = window.outerHeight - window.innerHeight > threshold;
-  if (widthThreshold || heightThreshold) {
-    // Developer tools are open
-    alert("Developer tools are not allowed!");
-    window.close(); // Optional: close the window
-  }
-}
-// Run check periodically
-setInterval(detectDevTools, 1000);
-// Minify and obfuscate your JavaScript
-// Use tools like UglifyJS or webpack for obfuscation
-function protectSourceCode() {
-  // Replace sensitive strings
-  const sensitiveStrings = [CLIENT_ID, API_KEY];
-  sensitiveStrings.forEach((str) => {
-    window[str] = null; // Remove direct references
-  });
-}
-function addWatermark() {
-  const watermark = document.createElement("div");
-  watermark.style.position = "fixed";
-  watermark.style.bottom = "10px";
-  watermark.style.right = "10px";
-  watermark.style.opacity = "0.5";
-  watermark.innerHTML = "Proprietary Software © Your Company";
-  document.body.appendChild(watermark);
-}
-// On the server-side
-function trackAndLimitAccess(req, res, next) {
-  const clientIP = req.ip;
-  const accessCount = getAccessCount(clientIP);
-  if (accessCount > MAX_ALLOWED_ATTEMPTS) {
-    return res.status(429).send("Too many attempts");
-  }
-  incrementAccessCount(clientIP);
-  next();
-}
-(function () {
-  // Immediate function to create closure and prevent global scope pollution
-  // Disable developer tools
-  function blockDevTools() {
-    const checkDevTools = () => {
-      const threshold = 160;
-      const widthThreshold = window.outerWidth - window.innerWidth > threshold;
-      const heightThreshold =
-        window.outerHeight - window.innerHeight > threshold;
-      if (widthThreshold || heightThreshold) {
-        alert("Developer tools are not allowed!");
-        window.close();
-      }
-    };
-    // Block context menu
-    document.addEventListener("contextmenu", (e) => e.preventDefault(), false);
-    // Block keyboard shortcuts
-    document.addEventListener("keydown", function (e) {
-      if (
-        e.keyCode === 123 ||
-        (e.ctrlKey && e.shiftKey && e.keyCode === 73) ||
-        (e.ctrlKey && e.keyCode === 85)
-      ) {
-        e.preventDefault();
-        return false;
-      }
-    });
-    // Periodic check
-    setInterval(checkDevTools, 1000);
-  }
-  // Initialize protection
-  function initProtection() {
-    blockDevTools();
-    // Additional protection mechanisms
-  }
-  // Run protection
-  initProtection();
-})();
