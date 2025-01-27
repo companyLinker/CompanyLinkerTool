@@ -118,6 +118,10 @@ body {
   font-size: 12px;
 }
 
+.form-floating.company-select-input.company-select-form-floating select {
+  display: none;
+}
+
 .form-container {
   max-width: 800px;
   margin: auto;
@@ -421,6 +425,17 @@ body {
 
 .download-btn.btn {
   display: block;
+}
+
+.nice-select .nice-select-dropdown {
+  display: none !important;
+}
+
+.nice-select.open .nice-select-dropdown {
+  display: block !important;
+}
+.nullify-cell {
+  background-color: yellow;
 }
 
 /* RESPONSIVE START */
