@@ -1717,6 +1717,261 @@ async function findNullifiableTransactions() {
 // Call this function after populating the data
 findNullifiableTransactions();
 
+async function highlightMatchingTotalCells() {
+  try {
+    // Get spreadsheet URL and extract spreadsheet ID
+    const sheetUrl = document.getElementById("googleSheetUrl").value;
+    const sheetIdMatch = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
+
+    if (!sheetIdMatch) {
+      console.error("Invalid Google Sheet URL");
+      return;
+    }
+
+    const spreadsheetId = sheetIdMatch[1];
+
+    // Get the sheet metadata to retrieve sheet names
+    const spreadsheetResponse = await gapi.client.sheets.spreadsheets.get({
+      spreadsheetId: spreadsheetId,
+    });
+
+    const sheets = spreadsheetResponse.result.sheets;
+    if (!sheets || sheets.length === 0) {
+      alert("No sheets found in the spreadsheet.");
+      return;
+    }
+
+    const sheetSelect = document.getElementById("sheetSelect");
+    const sheetName = sheetSelect.value || sheets[0].properties.title;
+
+    // Find the selected sheet
+    const selectedSheet = sheets.find(
+      (sheet) => sheet.properties.title === sheetName
+    );
+
+    if (!selectedSheet) {
+      alert("Selected sheet not found.");
+      return;
+    }
+
+    const sheetId = selectedSheet.properties.sheetId;
+
+    // Fetch the sheet data
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: spreadsheetId,
+      range: sheetName,
+    });
+
+    const values = response.result.values;
+    if (!values) return;
+
+    // Find indices of special rows and columns
+    const totalAffiliatedRowIndex = values.findIndex(
+      (row) => row[0] === "Total Affiliated"
+    );
+    const totalNonAffiliatedRowIndex = values.findIndex(
+      (row) => row[0] === "Total Non-Affiliated"
+    );
+    const totalColumnIndex = values[0].indexOf("Total");
+
+    // If any of these indices are not found, return
+    if (
+      totalAffiliatedRowIndex === -1 ||
+      totalNonAffiliatedRowIndex === -1 ||
+      totalColumnIndex === -1
+    ) {
+      console.warn("Could not find required total rows or columns");
+      return;
+    }
+
+    const requests = [];
+
+    // Utility function to parse and compare numbers
+    function parseNumericValue(value) {
+      if (value === null || value === undefined) return null;
+
+      // Convert to string and remove formatting
+      let strValue = String(value).trim();
+
+      // Handle parentheses for negative numbers
+      if (strValue.startsWith("(") && strValue.endsWith(")")) {
+        strValue = `-${strValue.slice(1, -1)}`;
+      }
+
+      // Remove commas and convert to number
+      const numValue = parseFloat(strValue.replace(/,/g, ""));
+
+      return isNaN(numValue) ? null : numValue;
+    }
+
+    // Function to check if two values match in absolute value but differ in sign
+    function isMatchingTotal(val1, val2) {
+      const num1 = parseNumericValue(val1);
+      const num2 = parseNumericValue(val2);
+
+      return (
+        num1 !== null &&
+        num2 !== null &&
+        Math.abs(num1) === Math.abs(num2) &&
+        Math.sign(num1) !== Math.sign(num2)
+      );
+    }
+
+    // Function to reset cell background color
+    const resetCellBackground = (rowIndex, colIndex) => {
+      requests.push({
+        repeatCell: {
+          range: {
+            sheetId: sheetId,
+            startRowIndex: rowIndex,
+            endRowIndex: rowIndex + 1,
+            startColumnIndex: colIndex,
+            endColumnIndex: colIndex + 1,
+          },
+          cell: {
+            userEnteredFormat: {
+              backgroundColor: {
+                red: 1,
+                green: 1,
+                blue: 1,
+                alpha: 1,
+              },
+            },
+          },
+          fields: "userEnteredFormat(backgroundColor)",
+        },
+      });
+    };
+
+    // Reset background colors for Total Affiliated row and Total column
+    const resetBackgroundColors = () => {
+      // Reset Total Affiliated row for the number of companies
+      for (let colIndex = 1; colIndex < totalColumnIndex; colIndex++) {
+        resetCellBackground(totalAffiliatedRowIndex, colIndex);
+      }
+
+      // Reset Total column for the number of companies
+      for (let rowIndex = 1; rowIndex < totalAffiliatedRowIndex; rowIndex++) {
+        resetCellBackground(rowIndex, totalColumnIndex);
+      }
+    };
+
+    // Reset background colors before highlighting
+    resetBackgroundColors();
+
+    // Check company-wise totals (Total column vs Total Affiliated row)
+    for (let rowIndex = 1; rowIndex < totalAffiliatedRowIndex; rowIndex++) {
+      const companyTotal = values[rowIndex][totalColumnIndex];
+      const affiliatedTotal = values[totalAffiliatedRowIndex][rowIndex];
+
+      if (isMatchingTotal(companyTotal, affiliatedTotal)) {
+        // Highlight the Total column cell and Total Affiliated row cell
+        requests.push(
+          {
+            repeatCell: {
+              range: {
+                sheetId: sheetId,
+                startRowIndex: rowIndex,
+                endRowIndex: rowIndex + 1,
+                startColumnIndex: totalColumnIndex,
+                endColumnIndex: totalColumnIndex + 1,
+              },
+              cell: {
+                userEnteredFormat: {
+                  backgroundColor: {
+                    red: 0.8,
+                    green: 1.0,
+                    blue: 0.8,
+                    alpha: 1,
+                  },
+                },
+              },
+              fields: "userEnteredFormat(backgroundColor)",
+            },
+          },
+          {
+            repeatCell: {
+              range: {
+                sheetId: sheetId,
+                startRowIndex: totalAffiliatedRowIndex,
+                endRowIndex: totalAffiliatedRowIndex + 1,
+                startColumnIndex: rowIndex,
+                endColumnIndex: rowIndex + 1,
+              },
+              cell: {
+                userEnteredFormat: {
+                  backgroundColor: {
+                    red: 0.8,
+                    green: 1.0,
+                    blue: 0.8,
+                    alpha: 1,
+                  },
+                },
+              },
+              fields: "userEnteredFormat(backgroundColor)",
+            },
+          }
+        );
+
+        // Check if the Grand Total cell matches the colored Total Affiliated cell
+        const grandTotalRowIndex = values.findIndex(
+          (row) => row[0] === "Grand Total"
+        );
+        if (grandTotalRowIndex !== -1) {
+          const grandTotalValue = parseNumericValue(
+            values[grandTotalRowIndex][rowIndex]
+          );
+          const totalAffiliatedValue = parseNumericValue(
+            values[totalAffiliatedRowIndex][rowIndex]
+          );
+
+          if (
+            grandTotalValue !== null &&
+            totalAffiliatedValue !== null &&
+            Math.abs(grandTotalValue) === Math.abs(totalAffiliatedValue)
+          ) {
+            // Highlight the Grand Total cell
+            requests.push({
+              repeatCell: {
+                range: {
+                  sheetId: sheetId,
+                  startRowIndex: grandTotalRowIndex,
+                  endRowIndex: grandTotalRowIndex + 1,
+                  startColumnIndex: rowIndex,
+                  endColumnIndex: rowIndex + 1,
+                },
+                cell: {
+                  userEnteredFormat: {
+                    backgroundColor: {
+                      red: 0.8,
+                      green: 1.0,
+                      blue: 0.8,
+                      alpha: 1,
+                    },
+                  },
+                },
+                fields: "userEnteredFormat(backgroundColor)",
+              },
+            });
+          }
+        }
+      }
+    }
+
+    // Execute the batch update if there are any requests
+    if (requests.length > 0) {
+      await gapi.client.sheets.spreadsheets.batchUpdate({
+        spreadsheetId: spreadsheetId,
+        resource: { requests: requests },
+      });
+
+      console.log(`Highlighted ${requests.length / 2} matching total cells`);
+    }
+  } catch (error) {
+    console.error("Error highlighting matching total cells:", error);
+  }
+}
+
 const NULLIFY_PASSWORD = "123";
 
 // Event listener for nullify button
@@ -2749,6 +3004,7 @@ async function addCompany() {
             newCompanyInput.value = "";
             await fillDiagonalCells(companyList, spreadsheetId);
             await addTotalsToGoogleSheet(spreadsheetId);
+            await highlightMatchingTotalCells();
             progressTracker.success(
               `Successfully processed ${companies.length} companies`
             );
@@ -3219,6 +3475,9 @@ async function addCompany() {
         newCompanyInput.value = "";
         await fillDiagonalCells(companyList, spreadsheetId);
         await addTotalsToGoogleSheet(spreadsheetId);
+        if (isGoogleSheetData) {
+          await highlightMatchingTotalCells();
+        }
         progressTracker.success(`Successfully added ${newCompany}`);
       } catch (error) {
         console.error("Error adding company to Google Sheet:", error);
@@ -3552,6 +3811,7 @@ submitButton.addEventListener("click", async function () {
       updateDataTable(columnCompany, rowCompany, amount);
       await fillDiagonalCells(companyList, spreadsheetId);
       await addTotalsToGoogleSheet(spreadsheetId);
+      await highlightMatchingTotalCells();
     } catch (error) {
       console.error("Error updating Google Sheet:", error);
       alert("Failed to update the sheet. " + error.message);
@@ -4430,8 +4690,8 @@ async function fetchSelectedSheet(spreadsheetId, sheetName) {
     // Update dropdowns based on the affiliation type
     updateCompanyDropdowns();
     await addTotalsToGoogleSheet(spreadsheetId);
-
     await findNullifiableTransactions();
+    await highlightMatchingTotalCells();
   } catch (err) {
     console.error("Error fetching data:", err);
   }
