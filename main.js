@@ -1717,8 +1717,9 @@ async function findNullifiableTransactions() {
 // Call this function after populating the data
 findNullifiableTransactions();
 
-async function highlightMatchingTotalCells() {
+async function highlightMatchingTotalCells(companyLength) {
   try {
+    console.log(companyLength);
     // Get spreadsheet URL and extract spreadsheet ID
     const sheetUrl = document.getElementById("googleSheetUrl").value;
     const sheetIdMatch = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
@@ -1830,12 +1831,7 @@ async function highlightMatchingTotalCells() {
           },
           cell: {
             userEnteredFormat: {
-              backgroundColor: {
-                red: 1,
-                green: 1,
-                blue: 1,
-                alpha: 1,
-              },
+              backgroundColor: null, // Reset background color
             },
           },
           fields: "userEnteredFormat(backgroundColor)",
@@ -1844,7 +1840,7 @@ async function highlightMatchingTotalCells() {
     };
 
     // Reset background colors for Total Affiliated row and Total column
-    const resetBackgroundColors = () => {
+    const resetBackgroundColors = (companyLength) => {
       // Reset Total Affiliated row for the number of companies
       for (let colIndex = 1; colIndex < totalColumnIndex; colIndex++) {
         resetCellBackground(totalAffiliatedRowIndex, colIndex);
@@ -1854,10 +1850,23 @@ async function highlightMatchingTotalCells() {
       for (let rowIndex = 1; rowIndex < totalAffiliatedRowIndex; rowIndex++) {
         resetCellBackground(rowIndex, totalColumnIndex);
       }
+
+      // Reset colors of cells above colored Total Affiliated row
+      for (let i = 0; i < companyLength; i++) {
+        resetCellBackground(totalAffiliatedRowIndex - i - 1, 1);
+      }
+
+      // Reset colors of previous cells in Total column
+      for (let i = 0; i < companyLength; i++) {
+        resetCellBackground(
+          totalAffiliatedRowIndex - companyLength - 1 + i,
+          totalColumnIndex
+        );
+      }
     };
 
     // Reset background colors before highlighting
-    resetBackgroundColors();
+    resetBackgroundColors(companyLength);
 
     // Check company-wise totals (Total column vs Total Affiliated row)
     for (let rowIndex = 1; rowIndex < totalAffiliatedRowIndex; rowIndex++) {
@@ -2778,7 +2787,7 @@ async function addCompany() {
                       insertionColumnIndex +
                       (uniqueNewCompanies ? uniqueNewCompanies.length : 0),
                   },
-                  inheritFromBefore: false,
+                  inheritFromBefore: true,
                 },
               });
 
@@ -2822,7 +2831,7 @@ async function addCompany() {
                       insertionRowIndex +
                       (uniqueNewCompanies ? uniqueNewCompanies.length : 0),
                   },
-                  inheritFromBefore: false,
+                  inheritFromBefore: true,
                 },
               });
 
@@ -2854,6 +2863,47 @@ async function addCompany() {
                     rowIndex: insertionRowIndex,
                     columnIndex: 0,
                   },
+                },
+              });
+              const numHeaders = range.values[0].length;
+              requests.push({
+                repeatCell: {
+                  range: {
+                    sheetId: selectedSheet.properties.sheetId,
+                    startRowIndex: insertionRowIndex - 1,
+                    endRowIndex:
+                      insertionRowIndex +
+                      (uniqueNewCompanies ? uniqueNewCompanies.length : 0),
+                    startColumnIndex: 0,
+                    endColumnIndex: numHeaders,
+                  },
+                  cell: {
+                    userEnteredFormat: {
+                      backgroundColor: null, // Reset background color
+                    },
+                  },
+                  fields: "userEnteredFormat(backgroundColor)",
+                },
+              });
+
+              // Reset background color of previous and next columns
+              requests.push({
+                repeatCell: {
+                  range: {
+                    sheetId: selectedSheet.properties.sheetId,
+                    startRowIndex: 0,
+                    endRowIndex: range.values.length,
+                    startColumnIndex: insertionColumnIndex - 1,
+                    endColumnIndex:
+                      insertionColumnIndex +
+                      (uniqueNewCompanies ? uniqueNewCompanies.length : 0),
+                  },
+                  cell: {
+                    userEnteredFormat: {
+                      backgroundColor: null, // Reset background color
+                    },
+                  },
+                  fields: "userEnteredFormat(backgroundColor)",
                 },
               });
               progressTracker.update({
@@ -2953,7 +3003,7 @@ async function addCompany() {
                     startIndex: insertionRowIndex,
                     endIndex: insertionRowIndex + uniqueNewCompanies.length,
                   },
-                  inheritFromBefore: false,
+                  inheritFromBefore: true,
                 },
               });
 
@@ -3249,7 +3299,7 @@ async function addCompany() {
                 startIndex: insertionColumnIndex, // Insert at the end of the current columns
                 endIndex: insertionColumnIndex + 1,
               },
-              inheritFromBefore: false,
+              inheritFromBefore: true,
             },
           });
 
@@ -3298,7 +3348,7 @@ async function addCompany() {
                 startIndex: insertionRowIndex,
                 endIndex: insertionRowIndex + 1,
               },
-              inheritFromBefore: false,
+              inheritFromBefore: true,
             },
           });
 
@@ -3320,6 +3370,43 @@ async function addCompany() {
                 rowIndex: insertionRowIndex,
                 columnIndex: 0,
               },
+            },
+          });
+          // Reset background color of previous and next columns
+          requests.push({
+            repeatCell: {
+              range: {
+                sheetId: selectedSheet.properties.sheetId,
+                startRowIndex: 0,
+                endRowIndex: range.values.length,
+                startColumnIndex: insertionColumnIndex - 1,
+                endColumnIndex: insertionColumnIndex,
+              },
+              cell: {
+                userEnteredFormat: {
+                  backgroundColor: null, // Reset background color
+                },
+              },
+              fields: "userEnteredFormat(backgroundColor)",
+            },
+          });
+
+          // Reset background color of new column
+          requests.push({
+            repeatCell: {
+              range: {
+                sheetId: selectedSheet.properties.sheetId,
+                startRowIndex: 0,
+                endRowIndex: range.values.length,
+                startColumnIndex: insertionColumnIndex,
+                endColumnIndex: insertionColumnIndex + 1,
+              },
+              cell: {
+                userEnteredFormat: {
+                  backgroundColor: null, // Reset background color
+                },
+              },
+              fields: "userEnteredFormat(backgroundColor)",
             },
           });
           progressTracker.update({
@@ -3417,7 +3504,7 @@ async function addCompany() {
                 startIndex: insertionRowIndex,
                 endIndex: insertionRowIndex + 1,
               },
-              inheritFromBefore: false,
+              inheritFromBefore: true,
             },
           });
 
@@ -3475,9 +3562,7 @@ async function addCompany() {
         newCompanyInput.value = "";
         await fillDiagonalCells(companyList, spreadsheetId);
         await addTotalsToGoogleSheet(spreadsheetId);
-        if (isGoogleSheetData) {
-          await highlightMatchingTotalCells();
-        }
+        await highlightMatchingTotalCells();
         progressTracker.success(`Successfully added ${newCompany}`);
       } catch (error) {
         console.error("Error adding company to Google Sheet:", error);
@@ -4187,7 +4272,7 @@ async function addTotalsToGoogleSheet(spreadsheetId) {
                   startIndex: blankRowIndex - 1,
                   endIndex: blankRowIndex,
                 },
-                inheritFromBefore: false,
+                inheritFromBefore: true,
               },
             },
             {
@@ -4241,7 +4326,7 @@ async function addTotalsToGoogleSheet(spreadsheetId) {
                 startIndex: lastNonEmptyRowIndex,
                 endIndex: lastNonEmptyRowIndex + 1,
               },
-              inheritFromBefore: false,
+              inheritFromBefore: true,
             },
           },
           // Update cell request
@@ -4284,7 +4369,7 @@ async function addTotalsToGoogleSheet(spreadsheetId) {
                 startIndex: totalNonAffiliatedRowIndex + 1,
                 endIndex: totalNonAffiliatedRowIndex + 2,
               },
-              inheritFromBefore: false,
+              inheritFromBefore: true,
             },
           },
           {
@@ -4470,7 +4555,7 @@ async function addTotalsToGoogleSheet(spreadsheetId) {
             startIndex: rowWiseTotalColumnIndex,
             endIndex: rowWiseTotalColumnIndex + 1,
           },
-          inheritFromBefore: false,
+          inheritFromBefore: true,
         },
       });
 
@@ -4673,7 +4758,6 @@ async function fetchSelectedSheet(spreadsheetId, sheetName) {
     // Output the results to the console for debugging
     console.log("Company List:", companyList);
     console.log("Row Companies:", rowCompanies);
-
     populateSelect(companyRowSelect, rowCompanies);
     populateSelect(companyColumnSelect, companyList);
 
