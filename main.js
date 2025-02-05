@@ -4008,7 +4008,7 @@ submitButton.addEventListener("click", async function () {
   // Clear inputs after submission
   document.getElementById("amount").value = "";
   commentTextarea.value = ""; // Clear the comment textarea
-  rowSelect.clear();
+  // rowSelect.clear();
   if (isGoogleSheetData) {
     await findNullifiableTransactions();
   }
