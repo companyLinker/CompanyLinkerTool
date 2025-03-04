@@ -543,65 +543,130 @@ async function populateDataTable(selectedRowCompany, selectedColumnCompany) {
 
   // Pagination function
   function renderPage(page) {
-    fetchNullifiablePairs().then((pairs) => {
-      nullifiablePairs = pairs;
+    if (!isGoogleSheetData) {
+      findNullifiableTransactionsExcel(worksheet).then((result) => {
+        const nullifiablePairs = result.nullifiablePairs;
 
-      // Mark nullifiable pairs before rendering
-      Object.keys(aggregatedRows).forEach((key) => {
-        const row = aggregatedRows[key];
-        row.isNullifiable = isNullifiablePair(
-          row.columnCompany,
-          row.rowCompany
-        );
-      });
+        // Mark nullifiable pairs before rendering
+        Object.keys(aggregatedRows).forEach((key) => {
+          const row = aggregatedRows[key];
+          row.isNullifiable = nullifiablePairs.some(
+            (pair) =>
+              (pair.companyA === row.columnCompany &&
+                pair.companyB === row.rowCompany) ||
+              (pair.companyB === row.columnCompany &&
+                pair.companyA === row.rowCompany)
+          );
+        });
 
-      // Store the full aggregated rows globally before rendering
-      window.currentAggregatedRows = aggregatedRows;
+        // Store the full aggregated rows globally before rendering
+        window.currentAggregatedRows = aggregatedRows;
 
-      dataBody.innerHTML = ""; // Clear existing rows
-      const keys = Object.keys(aggregatedRows);
-      const totalItems = keys.length;
-      const totalPages = Math.ceil(totalItems / itemsPerPage);
+        dataBody.innerHTML = ""; // Clear existing rows
+        const keys = Object.keys(aggregatedRows);
+        const totalItems = keys.length;
+        const totalPages = Math.ceil(totalItems / itemsPerPage);
 
-      const startIndex = (page - 1) * itemsPerPage;
-      const endIndex = startIndex + itemsPerPage;
+        const startIndex = (page - 1) * itemsPerPage;
+        const endIndex = startIndex + itemsPerPage;
 
-      // Render current page items
-      const pageKeys = keys.slice(startIndex, endIndex);
-      pageKeys.forEach((key) => {
-        const row = aggregatedRows[key];
-        const totalAmount = row.amounts.join(", ");
+        // Render current page items
+        const pageKeys = keys.slice(startIndex, endIndex);
+        pageKeys.forEach((key) => {
+          const row = aggregatedRows[key];
+          const totalAmount = row.amounts.join(", ");
 
-        const rowElement = document.createElement("tr");
-        const amountCell = document.createElement("td");
-        amountCell.textContent = totalAmount;
+          const rowElement = document.createElement("tr");
+          const amountCell = document.createElement("td");
+          amountCell.textContent = totalAmount;
 
-        // Check if the pair is nullifiable and add yellow background to amount cell
-        if (row.isNullifiable) {
-          amountCell.style.backgroundColor = "yellow";
+          // Check if the pair is nullifiable and add yellow background to amount cell
+          if (row.isNullifiable) {
+            amountCell.style.backgroundColor = "yellow";
+          }
+
+          rowElement.innerHTML = `
+            <td>${row.columnCompany}</td>
+            <td>${row.rowCompany}</td>
+          `;
+
+          rowElement.appendChild(amountCell);
+          dataBody.appendChild(rowElement);
+        });
+
+        // If no data, show message
+        if (pageKeys.length === 0) {
+          const messageRow = document.createElement("tr");
+          messageRow.innerHTML = `
+            <td colspan="3" class="text-center">No data available</td>
+          `;
+          dataBody.appendChild(messageRow);
         }
 
-        rowElement.innerHTML = `
-          <td>${row.columnCompany}</td>
-          <td>${row.rowCompany}</td>
-        `;
-
-        rowElement.appendChild(amountCell);
-        dataBody.appendChild(rowElement);
+        // Update pagination controls
+        renderPaginationControls(page, totalPages);
       });
+    } else {
+      fetchNullifiablePairs().then((pairs) => {
+        nullifiablePairs = pairs;
 
-      // If no data, show message
-      if (pageKeys.length === 0) {
-        const messageRow = document.createElement("tr");
-        messageRow.innerHTML = `
-          <td colspan="3" class="text-center">No data available</td>
-        `;
-        dataBody.appendChild(messageRow);
-      }
+        // Mark nullifiable pairs before rendering
+        Object.keys(aggregatedRows).forEach((key) => {
+          const row = aggregatedRows[key];
+          row.isNullifiable = isNullifiablePair(
+            row.columnCompany,
+            row.rowCompany
+          );
+        });
 
-      // Update pagination controls
-      renderPaginationControls(page, totalPages);
-    });
+        // Store the full aggregated rows globally before rendering
+        window.currentAggregatedRows = aggregatedRows;
+
+        dataBody.innerHTML = ""; // Clear existing rows
+        const keys = Object.keys(aggregatedRows);
+        const totalItems = keys.length;
+        const totalPages = Math.ceil(totalItems / itemsPerPage);
+
+        const startIndex = (page - 1) * itemsPerPage;
+        const endIndex = startIndex + itemsPerPage;
+
+        // Render current page items
+        const pageKeys = keys.slice(startIndex, endIndex);
+        pageKeys.forEach((key) => {
+          const row = aggregatedRows[key];
+          const totalAmount = row.amounts.join(", ");
+
+          const rowElement = document.createElement("tr");
+          const amountCell = document.createElement("td");
+          amountCell.textContent = totalAmount;
+
+          // Check if the pair is nullifiable and add yellow background to amount cell
+          if (row.isNullifiable) {
+            amountCell.style.backgroundColor = "yellow";
+          }
+
+          rowElement.innerHTML = `
+            <td>${row.columnCompany}</td>
+            <td>${row.rowCompany}</td>
+          `;
+
+          rowElement.appendChild(amountCell);
+          dataBody.appendChild(rowElement);
+        });
+
+        // If no data, show message
+        if (pageKeys.length === 0) {
+          const messageRow = document.createElement("tr");
+          messageRow.innerHTML = `
+            <td colspan="3" class="text-center">No data available</td>
+          `;
+          dataBody.appendChild(messageRow);
+        }
+
+        // Update pagination controls
+        renderPaginationControls(page, totalPages);
+      });
+    }
   }
 
   // Pagination controls rendering
