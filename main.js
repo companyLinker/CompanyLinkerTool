@@ -2135,7 +2135,7 @@ function nullifyGoogleSheetAmounts() {
                 startColumnIndex: headers.findIndex((c) => c === companyB) + 1,
                 endColumnIndex: headers.findIndex((c) => c === companyB) + 2,
               },
-              rows: [{ values: [{ userEnteredValue: { numberValue: 0 } }] }],
+              rows: [{ values: [{ userEnteredValue: { stringValue: "" } }] }], // Set to empty string
               fields: "userEnteredValue",
             },
           },
@@ -2148,8 +2148,42 @@ function nullifyGoogleSheetAmounts() {
                 startColumnIndex: headers.findIndex((c) => c === companyA) + 1,
                 endColumnIndex: headers.findIndex((c) => c === companyA) + 2,
               },
-              rows: [{ values: [{ userEnteredValue: { numberValue: 0 } }] }],
+              rows: [{ values: [{ userEnteredValue: { stringValue: "" } }] }], // Set to empty string
               fields: "userEnteredValue",
+            },
+          },
+          {
+            repeatCell: {
+              range: {
+                sheetId: sheetId, // Use the selected sheet's ID
+                startRowIndex: headers.findIndex((c) => c === companyA) + 1,
+                endRowIndex: headers.findIndex((c) => c === companyA) + 2,
+                startColumnIndex: headers.findIndex((c) => c === companyB) + 1,
+                endColumnIndex: headers.findIndex((c) => c === companyB) + 2,
+              },
+              cell: {
+                userEnteredFormat: {
+                  backgroundColor: null, // Reset background color
+                },
+              },
+              fields: "userEnteredFormat(backgroundColor)",
+            },
+          },
+          {
+            repeatCell: {
+              range: {
+                sheetId: sheetId, // Use the selected sheet's ID
+                startRowIndex: headers.findIndex((c) => c === companyB) + 1,
+                endRowIndex: headers.findIndex((c) => c === companyB) + 2,
+                startColumnIndex: headers.findIndex((c) => c === companyA) + 1,
+                endColumnIndex: headers.findIndex((c) => c === companyA) + 2,
+              },
+              cell: {
+                userEnteredFormat: {
+                  backgroundColor: null, // Reset background color
+                },
+              },
+              fields: "userEnteredFormat(backgroundColor)",
             },
           },
         ]
@@ -2250,7 +2284,11 @@ function nullifyExcelAmounts() {
               nullifiablePairsMap.has(`${toCompany}-${fromCompany}`)
             ) {
               const amountCell = row.getCell(colIndex);
-              amountCell.value = 0;
+              amountCell.value = ""; // Set to empty string
+              amountCell.fill = {
+                type: "pattern",
+                pattern: "none", // Reset background color to none
+              };
             }
 
             // Update progress
